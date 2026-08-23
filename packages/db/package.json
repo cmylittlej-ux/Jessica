@@ -13,7 +13,8 @@
     "db:check": "drizzle-kit check",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "node --experimental-strip-types src/seed/run.ts"
+    "db:seed": "node --experimental-strip-types src/seed/run.ts",
+    "db:reset": "drizzle-kit migrate && node --experimental-strip-types src/seed/run.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

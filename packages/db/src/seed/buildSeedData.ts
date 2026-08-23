@@ -93,10 +93,13 @@ export const TARGET_COUNTS: SeedCounts = {
 const pad = (n: number, width = 3) => String(n).padStart(width, '0');
 
 /**
- * Build the complete fixture dataset. Pure function — pass a fixed instant
- * in tests; the runner passes the current time.
+ * Fixed epoch for all seeded timestamps. Resets must produce byte-identical
+ * databases (Phase 2 Gate), so "now" defaults to a constant instead of the
+ * wall clock; tests may still pass an explicit instant.
  */
-export function buildSeedData(now = new Date(), seed = 20260823) {
+export const SEED_EPOCH = new Date('2026-08-23T00:00:00.000Z');
+
+export function buildSeedData(now: Date = SEED_EPOCH, seed = 20260823) {
   const rand = makeRandom(seed);
   const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)]!;
 
@@ -216,6 +219,26 @@ export function buildSeedData(now = new Date(), seed = 20260823) {
       addLink(p.id, idsByRole.BUYER[idx % idsByRole.BUYER.length]!, 'BUYER');
     }
   });
+
+  // Spec §15 minimums are role-level views: every seeded role contact must
+  // hold at least one property_contacts row, otherwise CRM role queries
+  // silently under-report. Round-robin the remaining contacts onto properties.
+  const roleGuarantees = [
+    ['OWNER', idsByRole.OWNER],
+    ['TENANT', idsByRole.TENANT],
+    ['BUYER', idsByRole.BUYER],
+    ['VENDOR', idsByRole.VENDOR],
+  ] as const;
+  for (const [role, ids] of roleGuarantees) {
+    const linked = new Set(
+      propertyContactRows.filter((r) => r.role === role).map((r) => r.contactId),
+    );
+    ids.forEach((contactId, i) => {
+      if (!linked.has(contactId)) {
+        addLink(propertyRows[i % propertyRows.length]!.id, contactId, role);
+      }
+    });
+  }
 
   // --- Cases -------------------------------------------------------------------
   const caseRows: (typeof cases.$inferInsert)[] = [];

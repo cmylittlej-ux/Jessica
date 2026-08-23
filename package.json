@@ -21,7 +21,8 @@
     "db:generate": "pnpm --filter @reos/db db:generate",
     "db:push": "pnpm --filter @reos/db db:push",
     "db:migrate": "pnpm --filter @reos/db db:migrate",
-    "db:seed": "pnpm --filter @reos/db db:seed"
+    "db:seed": "pnpm --filter @reos/db db:seed",
+    "db:reset": "pnpm --filter @reos/db db:reset"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

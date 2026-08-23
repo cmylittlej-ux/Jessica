@@ -74,7 +74,14 @@ importers:
 
   packages/audit: {}
 
-  packages/connectors: {}
+  packages/connectors:
+    dependencies:
+      '@reos/db':
+        specifier: workspace:*
+        version: link:../db
+      '@reos/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/db:
     dependencies:
