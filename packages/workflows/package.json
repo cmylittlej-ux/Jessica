@@ -9,5 +9,11 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint src"
+  },
+  "dependencies": {
+    "@reos/db": "workspace:*",
+    "@reos/ai": "workspace:*",
+    "@reos/connectors": "workspace:*",
+    "@reos/shared": "workspace:*"
   }
 }

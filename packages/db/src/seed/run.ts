@@ -4,6 +4,7 @@ import {
   activities,
   agencies,
   aiActions,
+  aiFeedbacks,
   approvals,
   auditLogs,
   cases,
@@ -26,6 +27,7 @@ export async function seedDatabase(databaseUrl?: string) {
   await db.delete(activities);
   await db.delete(auditLogs);
   await db.delete(approvals);
+  await db.delete(aiFeedbacks);
   await db.delete(aiActions);
   await db.delete(tasks);
   await db.delete(communications);

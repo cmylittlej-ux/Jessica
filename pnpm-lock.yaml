@@ -115,7 +115,20 @@ importers:
 
   packages/shared: {}
 
-  packages/workflows: {}
+  packages/workflows:
+    dependencies:
+      '@reos/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@reos/connectors':
+        specifier: workspace:*
+        version: link:../connectors
+      '@reos/db':
+        specifier: workspace:*
+        version: link:../db
+      '@reos/shared':
+        specifier: workspace:*
+        version: link:../shared
 
 packages:
 

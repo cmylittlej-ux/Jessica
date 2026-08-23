@@ -1,5 +1,5 @@
 import type { ReosDatabase } from './client.ts';
-import type { approvals } from './schema/index.ts';
+import type { aiActions, approvals } from './schema/index.ts';
 import { activities, auditLogs, cases } from './schema/index.ts';
 
 /**
@@ -57,6 +57,31 @@ export function nextCaseStatus(
 ): WorkflowStatus {
   if (!CASE_TRANSITIONS[current].includes(target)) {
     throw new Error(`Illegal case status transition: ${current} -> ${target}`);
+  }
+  return target;
+}
+
+export type AiActionStatus = (typeof aiActions.$inferSelect)['status'];
+
+const AI_ACTION_TRANSITIONS: Record<AiActionStatus, AiActionStatus[]> = {
+  PROPOSED: ['APPROVED', 'REJECTED'],
+  APPROVED: ['EXECUTED', 'FAILED'],
+  REJECTED: [],
+  EXECUTED: [],
+  FAILED: [],
+};
+
+/**
+ * AIAction state machine (Spec §27): PROPOSED → APPROVED → EXECUTED;
+ * REJECTED and terminal states never move.
+ */
+export function nextAiActionStatus(
+  current: AiActionStatus,
+  target: AiActionStatus,
+): AiActionStatus {
+  const allowed = AI_ACTION_TRANSITIONS[current];
+  if (!allowed || !allowed.includes(target)) {
+    throw new Error(`Illegal AIAction transition: ${current} -> ${target}`);
   }
   return target;
 }

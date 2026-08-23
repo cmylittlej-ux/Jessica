@@ -7,6 +7,7 @@ export { createRepositories, type ReosRepositories } from './repositories.ts';
 export {
   nextApprovalStatus,
   nextCaseStatus,
+  nextAiActionStatus,
   openCase,
   type OpenCaseInput,
 } from './services.ts';

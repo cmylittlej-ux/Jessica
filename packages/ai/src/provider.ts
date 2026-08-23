@@ -153,9 +153,14 @@ export function createMockAIProvider(options: MockAIProviderOptions = {}): AIPro
               summaryZh: `邮件「${input.subject}」已分类为 ${base?.caseType ?? '其他'}。`,
               summaryEn: `Email "${input.subject}" classified as ${base?.caseType ?? 'other'}.`,
               recommendedActions:
-                base?.actionRequired === 'REPLY_REQUIRED'
-                  ? [{ type: 'REQUEST_MORE_INFO', reason: 'Acknowledge and ask for details or photos.' }]
-                  : [{ type: 'NO_ACTION', reason: 'No immediate action required.' }],
+                base?.caseType === 'MAINTENANCE'
+                  ? [
+                      { type: 'SCHEDULE_TRADESPERSON', reason: 'Maintenance issues need a trade inspection.' },
+                      { type: 'CREATE_FOLLOW_UP', reason: 'Confirm resolution with the tenant afterwards.' },
+                    ]
+                  : base?.actionRequired === 'REPLY_REQUIRED'
+                    ? [{ type: 'REQUEST_MORE_INFO', reason: 'Acknowledge and ask for details or photos.' }]
+                    : [{ type: 'NO_ACTION', reason: 'No immediate action required.' }],
               confidence: confidenceFor(matched),
             };
             break;
