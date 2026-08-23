@@ -1,0 +1,31 @@
+{
+  "name": "reos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real Estate AI OS — Foundation MVP. Local-first, mock-data driven real estate AI work system.",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @reos/web dev",
+    "build": "NEXT_TELEMETRY_DISABLED=1 pnpm --filter @reos/web build",
+    "start": "pnpm --filter @reos/web start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^22.10.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^3.2.0"
+  }
+}

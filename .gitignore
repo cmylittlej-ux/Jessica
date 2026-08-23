@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next.js
+.next/
+out/
+
+# production
+build/
+dist/
+
+# env & secrets — never commit (Spec §30)
+.env
+.env.local
+.env.*.local
+
+# testing / coverage
+coverage/
+playwright-report/
+test-results/
+
+# misc
+.DS_Store
+*.log
+.turbo/
+*.tsbuildinfo
+next-env.d.ts

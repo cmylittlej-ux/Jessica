@@ -1,0 +1,22 @@
+# REOS local infrastructure (Spec §3 — Docker Compose)
+# Requires Docker Desktop. Start with: pnpm db:up
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: reos-db
+    environment:
+      POSTGRES_USER: reos
+      POSTGRES_PASSWORD: reos
+      POSTGRES_DB: reos
+    ports:
+      - '5432:5432'
+    volumes:
+      - reos-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U reos -d reos']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  reos-pgdata:
