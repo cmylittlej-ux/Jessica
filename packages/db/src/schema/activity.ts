@@ -6,10 +6,10 @@ import {
   text,
   timestamp,
 } from 'drizzle-orm/pg-core';
-import { agencies } from './agency';
-import { actorTypeEnum } from './enums';
-import { cases } from './case';
-import { properties } from './property';
+import { agencies } from './agency.ts';
+import { actorTypeEnum } from './enums.ts';
+import { cases } from './case.ts';
+import { properties } from './property.ts';
 
 /**
  * Unified human-readable timeline (Spec §5.11).

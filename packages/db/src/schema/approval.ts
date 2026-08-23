@@ -7,14 +7,14 @@ import {
   text,
   timestamp,
 } from 'drizzle-orm/pg-core';
-import { cases } from './case';
+import { cases } from './case.ts';
 import {
   aiActionStatusEnum,
   aiActionTypeEnum,
   approvalStatusEnum,
   feedbackTypeEnum,
-} from './enums';
-import { users } from './agency';
+} from './enums.ts';
+import { users } from './agency.ts';
 
 /**
  * Every AI action is recorded with its proposed payload before anything is

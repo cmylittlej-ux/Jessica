@@ -6,9 +6,9 @@ import {
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { agencies } from './agency';
-import { contacts } from './contact';
-import { contactRoleEnum, propertySourceEnum, propertyStatusEnum, propertyTypeEnum } from './enums';
+import { agencies } from './agency.ts';
+import { contacts } from './contact.ts';
+import { contactRoleEnum, propertySourceEnum, propertyStatusEnum, propertyTypeEnum } from './enums.ts';
 
 export const properties = pgTable(
   'properties',

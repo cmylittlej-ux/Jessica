@@ -5,9 +5,9 @@ import {
   caseTypeEnum,
   priorityEnum,
   workflowStatusEnum,
-} from './enums';
-import { agencies, users } from './agency';
-import { properties } from './property';
+} from './enums.ts';
+import { agencies, users } from './agency.ts';
+import { properties } from './property.ts';
 
 /**
  * The system's core business object (Spec §2.2 Case First, §5.5).

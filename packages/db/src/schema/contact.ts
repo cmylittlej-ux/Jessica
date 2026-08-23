@@ -1,6 +1,6 @@
 import { relations } from 'drizzle-orm';
 import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
-import { agencies } from './agency';
+import { agencies } from './agency.ts';
 
 /**
  * Unified contact (Spec §5.3). Never create separate Owner/Buyer/Tenant

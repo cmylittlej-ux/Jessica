@@ -6,14 +6,14 @@ import {
   text,
   timestamp,
 } from 'drizzle-orm/pg-core';
-import { cases } from './case';
+import { cases } from './case.ts';
 import {
   channelEnum,
   communicationStatusEnum,
   directionEnum,
-} from './enums';
-import { contacts } from './contact';
-import { properties } from './property';
+} from './enums.ts';
+import { contacts } from './contact.ts';
+import { properties } from './property.ts';
 
 /**
  * Unified communication (Spec §5.6) — not just email. Original content is

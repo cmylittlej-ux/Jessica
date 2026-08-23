@@ -1,14 +1,14 @@
 import { relations } from 'drizzle-orm';
 import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
-import { cases } from './case';
+import { cases } from './case.ts';
 import {
   createdByTypeEnum,
   priorityEnum,
   taskSourceEnum,
   taskStatusEnum,
-} from './enums';
-import { properties } from './property';
-import { users } from './agency';
+} from './enums.ts';
+import { properties } from './property.ts';
+import { users } from './agency.ts';
 
 export const tasks = pgTable(
   'tasks',
