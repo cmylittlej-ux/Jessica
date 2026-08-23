@@ -1,11 +1,28 @@
 /**
- * @reos/ai
+ * @reos/ai — AI Gateway (Spec §8–§12).
  *
- * Model-independent AI layer (Spec §2.4, §8-13). Phase 3 delivers:
- *   gateway/    AIGateway interface — the ONLY entry point for business code
- *   providers/  MockAIProvider first; real providers are swappable later
- *   schemas/    Zod schemas validating every structured AI response
- *   context/    Context Builder — token-efficient, task-scoped input assembly
- *   cost/       model tier abstraction (TIER_0..TIER_3)
+ * Business code calls ONLY the gateway; UI and workflows never touch a
+ * provider. All structured outputs are Zod-validated (Spec §9), confidence
+ * follows the §10 policy, tasks map to model tiers via §11, and context is
+ * assembled deterministically per §12 before anything reaches a provider.
  */
-export const PACKAGE_NAME = '@reos/ai';
+
+export { createAIGateway, type AIGateway, type AIGatewayOptions } from './gateway.ts';
+export { createMockAIProvider, type AIProvider, type AICompletionRequest, type MockAIProviderOptions } from './provider.ts';
+export { createBuildContext, type ContextMatcher } from './context.ts';
+export { AIError, isAIError, type AIErrorCode } from './errors.ts';
+export {
+  confidenceBand,
+  mayAutoEstablishRelationship,
+  HIGH_CONFIDENCE_THRESHOLD,
+  MANUAL_THRESHOLD,
+  type ConfidenceBand,
+} from './confidence.ts';
+export {
+  tierForTask,
+  TASK_TIERS,
+  type AiTask,
+  type ModelTier,
+  type DeterministicOp,
+} from './tiers.ts';
+export * from './schemas.ts';
