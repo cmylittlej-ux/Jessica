@@ -17,7 +17,11 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "db:up": "docker compose up -d db",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @reos/db db:generate",
+    "db:push": "pnpm --filter @reos/db db:push",
+    "db:migrate": "pnpm --filter @reos/db db:migrate",
+    "db:seed": "pnpm --filter @reos/db db:seed"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

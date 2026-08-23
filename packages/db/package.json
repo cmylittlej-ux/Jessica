@@ -8,6 +8,19 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "node --experimental-strip-types src/seed/run.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.10"
   }
 }

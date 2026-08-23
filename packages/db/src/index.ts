@@ -1,11 +1,18 @@
 /**
- * @reos/db
- *
- * Database schema, migrations and seed (Drizzle ORM + PostgreSQL).
- * Implemented in Phase 1: Agency / User / Contact / Property / Case /
- * Communication / Task / Approval / AIAction / AIFeedback / Activity / AuditLog.
- *
- * Requires DATABASE_URL (see .env.example) and Docker Desktop (`pnpm db:up`).
- * drizzle-kit is installed at the start of Phase 1.
+ * @reos/db — schema, client, repositories and seed (Drizzle + PostgreSQL).
  */
-export const PACKAGE_NAME = '@reos/db';
+export * from './schema/index.ts';
+export { createDb, getPool, type ReosDatabase } from './client.ts';
+export { createRepositories, type ReosRepositories } from './repositories.ts';
+export {
+  nextApprovalStatus,
+  nextCaseStatus,
+  openCase,
+  type OpenCaseInput,
+} from './services.ts';
+export {
+  buildSeedData,
+  TARGET_COUNTS,
+  type SeedDataset,
+} from './seed/buildSeedData.ts';
+export { seedDatabase } from './seed/run.ts';
