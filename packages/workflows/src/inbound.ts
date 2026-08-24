@@ -176,6 +176,13 @@ export function createInboundWorkflow(
           afterData: { caseId: created.id, confidence: classified.confidence },
           createdAt: now,
         });
+        // Link the held message to its triage case for UI navigation.
+        if (message.caseId !== created.id) {
+          await db
+            .update(communications)
+            .set({ caseId: created.id })
+            .where(eq(communications.id, communicationId));
+        }
         return ok({
           status: 'NEEDS_REVIEW',
           communicationId,
@@ -199,11 +206,18 @@ export function createInboundWorkflow(
         caseRow = created;
       }
 
-      // 8. Save bilingual summaries onto the case.
+      // 8. Save bilingual summaries onto the case + link the message to its
+      // case so every surface (inbox list, detail, timeline) can join on it.
       await db
         .update(cases)
         .set({ summary: `${classified.summaryEn}\n${classified.summaryZh}`, updatedAt: new Date() })
         .where(eq(cases.id, caseRow.id));
+      if (message.caseId !== caseRow.id) {
+        await db
+          .update(communications)
+          .set({ caseId: caseRow.id })
+          .where(eq(communications.id, communicationId));
+      }
 
       const taskIds: string[] = [];
       let aiActionId: string | null = null;
@@ -233,7 +247,9 @@ export function createInboundWorkflow(
       }
 
       // 11–13. Generate reply draft where appropriate → AIAction → Approval.
-      if (classified.actionRequired === 'REPLY_REQUIRED') {
+      // OFFER cases also get a buyer acknowledgement draft (Spec §33) even
+      // though the decision itself is DECISION_REQUIRED for the vendor.
+      if (classified.actionRequired === 'REPLY_REQUIRED' || classified.caseType === 'OFFER') {
         const replyContext = await context.buildCaseContext(caseRow.id);
         if (replyContext.ok) {
           const replyResult = await gateway.generateReply({
@@ -353,6 +369,12 @@ export function createInboundWorkflow(
           .update(cases)
           .set({ status: nextCaseStatus('NEW', 'READY_FOR_REVIEW'), updatedAt: new Date() })
           .where(eq(cases.id, fallback.id));
+        if (message.caseId !== fallback.id) {
+          await db
+            .update(communications)
+            .set({ caseId: fallback.id })
+            .where(eq(communications.id, communicationId));
+        }
         return ok({
           status: 'NEEDS_REVIEW',
           communicationId,

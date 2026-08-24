@@ -104,11 +104,14 @@ export function createMockAIProvider(options: MockAIProviderOptions = {}): AIPro
       };
     }
     if (countMatches(text, SALES) >= 1) {
+      // Spec §33: a buyer offer is a high-stakes DECISION_REQUIRED event —
+      // never auto-accepted, always routed to the vendor for review.
+      const isOffer = text.toLowerCase().includes('offer');
       return {
         businessDomain: 'SALES' as const,
-        caseType: 'BUYER_ENQUIRY' as const,
-        priority: 'NORMAL' as const,
-        actionRequired: 'REPLY_REQUIRED' as const,
+        caseType: isOffer ? ('OFFER' as const) : ('BUYER_ENQUIRY' as const),
+        priority: isOffer ? ('HIGH' as const) : ('NORMAL' as const),
+        actionRequired: isOffer ? ('DECISION_REQUIRED' as const) : ('REPLY_REQUIRED' as const),
       };
     }
     return null;
@@ -158,9 +161,14 @@ export function createMockAIProvider(options: MockAIProviderOptions = {}): AIPro
                       { type: 'SCHEDULE_TRADESPERSON', reason: 'Maintenance issues need a trade inspection.' },
                       { type: 'CREATE_FOLLOW_UP', reason: 'Confirm resolution with the tenant afterwards.' },
                     ]
-                  : base?.actionRequired === 'REPLY_REQUIRED'
-                    ? [{ type: 'REQUEST_MORE_INFO', reason: 'Acknowledge and ask for details or photos.' }]
-                    : [{ type: 'NO_ACTION', reason: 'No immediate action required.' }],
+                  : base?.caseType === 'OFFER'
+                    ? [
+                        { type: 'REPLY_BUYER', reason: 'Acknowledge the offer and highlight its conditions.' },
+                        { type: 'CREATE_FOLLOW_UP', reason: 'Present the offer to the vendor for review — never auto-accept.' },
+                      ]
+                    : base?.actionRequired === 'REPLY_REQUIRED'
+                      ? [{ type: 'REQUEST_MORE_INFO', reason: 'Acknowledge and ask for details or photos.' }]
+                      : [{ type: 'NO_ACTION', reason: 'No immediate action required.' }],
               confidence: confidenceFor(matched),
             };
             break;

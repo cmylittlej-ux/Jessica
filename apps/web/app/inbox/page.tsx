@@ -126,23 +126,23 @@ export default async function InboxPage({
           {t["inbox.simulateHeader"]}
         </div>
         <div className="grid grid-cols-[1fr_1fr_2fr] gap-2 mb-2">
-          <select name="propertyId" required className="rounded border border-neutral-300 px-2 py-1.5 text-sm bg-white">
+          <select name="propertyId" required aria-label="Property" data-testid="sim-property" className="rounded border border-neutral-300 px-2 py-1.5 text-sm bg-white">
             <option value="">{t["inbox.phProperty"]}</option>
             {allProperties.map((p) => (
               <option key={p.id} value={p.id}>{p.address}</option>
             ))}
           </select>
-          <select name="senderContactId" required className="rounded border border-neutral-300 px-2 py-1.5 text-sm bg-white">
+          <select name="senderContactId" required aria-label="Sender" data-testid="sim-sender" className="rounded border border-neutral-300 px-2 py-1.5 text-sm bg-white">
             <option value="">{t["inbox.phSender"]}</option>
             {allContacts.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
-          <input name="subject" placeholder={t["inbox.phSubject"]} className="rounded border border-neutral-300 px-2 py-1.5 text-sm" />
+          <input name="subject" aria-label="Subject" data-testid="sim-subject" placeholder={t["inbox.phSubject"]} className="rounded border border-neutral-300 px-2 py-1.5 text-sm" />
         </div>
         <div className="flex gap-2">
-          <textarea name="content" rows={2} required placeholder={t["inbox.phBody"]} className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm" />
-          <button type="submit" className="self-stretch rounded-md bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-neutral-700">
+          <textarea name="content" rows={2} required aria-label="Email body" data-testid="sim-body" placeholder={t["inbox.phBody"]} className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm" />
+          <button type="submit" data-testid="sim-submit" className="self-stretch rounded-md bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-neutral-700">
             {t["inbox.btnSendProcess"]}
           </button>
         </div>
