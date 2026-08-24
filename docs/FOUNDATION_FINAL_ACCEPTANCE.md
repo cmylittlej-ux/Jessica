@@ -94,3 +94,63 @@
 ---
 
 **结论：Foundation Final Hardening 的 Definition of Done（Spec §43）全部满足 —— Foundation Final Hardening Complete.**
+
+---
+
+## H. Final P0 Closure（REOS_FINAL_P0_CLOSURE Spec，commit `0b7caa9`）
+
+### H.1 Workflow 真闭环（P0-1 / §1）
+
+- `statusAfterReplySent()` 恒返回 `'WAITING'`——任何 pre-send 状态（NEW / AI_PROCESSING / READY_FOR_REVIEW / IN_PROGRESS）在回复发出后一律落 WAITING，不再悬挂。
+- `CASE_TRANSITIONS` 状态机补齐 NEW / AI_PROCESSING / READY_FOR_REVIEW → WAITING 迁移（此前 NEW→WAITING 会抛非法迁移，是潜在产品级 bug，本轮测试暴露后修复）。
+- 新增 `packages/workflows/src/followups.ts`：`processDueFollowUps(db, now)` 扫描 WAITING case + 到期 OPEN task → FOLLOW_UP_DUE；`completeFollowUpTask(db, taskId)` 完成任务且仅当无剩余 OPEN 任务时关闭 case → COMPLETED。Case 状态闭环 **NEW→…→WAITING→FOLLOW_UP_DUE→COMPLETED** 全部可审计推进。
+
+### H.2 Context-Aware Risk（P0-2 / §2）
+
+- `classifyActionRisk(inputOrType: ActionRiskContext | string)`：风险 = max(base type risk, caseType 升档, actionRequired 升档, priority 升档, legal/financial/compliance 信号直升 CRITICAL)。OFFER ≥MEDIUM、NEGOTIATION/CONTRACT/SOLICITOR/COMPLAINT/ARREARS ≥HIGH、COMPLIANCE/RENT_ADJUSTMENT → CRITICAL。
+- `bulkApproveDecision` fail-closed：受限 caseType（OFFER、NEGOTIATION、CONTRACT、SOLICITOR、COMPLIANCE、ARREARS、RENT_ADJUSTMENT）与受限 actionRequired（DECISION_REQUIRED、LEGAL_REQUIRED、COMPLIANCE_REQUIRED、URGENT_ACTION）永不批量批准；UI 的 bulk-all 查询按 case 关联上下文逐条判定。
+
+### H.3 Outbox 并发窗口 + Crash Recovery（P0-3 / §3）
+
+- `actionExecutions.claimed_at` 列新增（migration `0004_wise_roughhouse.sql`）；executionKey 唯一约束保证至多一行。
+- claim 语义：EXECUTED→幂等 replay；EXECUTING 且 claimedAt 新鲜（<60s）→第二 caller 安全 no-op（`idempotentReplay:true, communicationId:null`），**绝不二次发送**；EXECUTING 且 stale（≥60s）→重取恰好一次（attempts+1）；FAILED 不动（人工介入）。
+
+### H.4 INFORMATION_ONLY 真早退（P0-4 / §4）
+
+- 分类置信 ≥0.70 但 case match <LINK 阈值且非 action-required 的纯信息消息：持久化翻译 → 挂到 LINK 决策 case 或确定性会话线程归属 case → 写 INFORMATION_FILED Activity + audit → 早退。**零 Case / Task / Approval / AIAction / 回复产生**（P0-10/P0-11 差值断言证明）。
+
+### H.5 Outlook 严格 Source Identity（P0-5 / §5)
+
+- `ingestRawEmail`：source=OUTLOOK 强制要求 sourceAccountId + externalMessageId，缺一即拒绝落库；身份 = 复合键 (source, sourceAccountId, externalMessageId)——同内容不同 messageId 不是重复；同 messageId 不同 mailbox 不是重复（P0-12~15 四断言）。
+
+### H.6 Waiting Inbox 分离（P1）
+
+- Inbox 新增独立 Waiting tab（`inbox.tabWaiting` 双语词典），过滤 `actionRequired=WAITING_FOR_OTHER || caseStatus=WAITING`；Information tab 不再混入等待项。
+
+### H.7 Test & CI Evidence
+
+| Gate | 结果 |
+|---|---|
+| 新增 unit：`tests/unit/risk-policy.spec.ts` | 5/5（maintenance LOW 可批量；offer/offer-acceptance/legal/restricted caseType 全部 fail-closed） |
+| 新增 integration：`tests/integration/p0-closure.db.spec.ts` | 9/9（闭环链路、并发恰好一次发送、新鲜锁 no-op、stale 恢复、FYI 零副作用×2、Outlook 身份×4） |
+| vitest 全量 | **18 文件 87 passed**（+ci-guard 本地 skip） |
+| lint / typecheck | 9 包 0 error / 8 包 tsc 0 error |
+| production build | ✅ |
+| Playwright E2E | 5/5（Waiting tab 变更未破坏既有场景） |
+
+CI（可审计证据）：
+
+- Run ID **32712984715**
+- URL https://github.com/cmylittlej-ux/Jessica/actions/runs/32712984715
+- SHA `0b7caa9c3264e4107350eb9eac87113a882c188d`
+- Started 2026-08-24T09:42:29Z / Completed 2026-08-24T09:45:01Z
+- conclusion **success**
+
+### H.8 Final Readiness Decision
+
+| 问题 | 回答 |
+|---|---|
+| Foundation Final Hardening | **COMPLETE** |
+| Ready to START Outlook integration? | **YES** |
+| Ready to START PropertyMe read-only connector integration? | **YES** |
+| Grow | **CONDITIONAL**（需先补 Sales 侧最小镜像实体，见 G 节） |
