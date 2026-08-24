@@ -146,6 +146,9 @@ export function createMockEmailConnector(db: ReosDatabase): EmailConnector {
             status: 'SENT',
             sentAt: now,
             createdAt: now,
+            // Phase 2 §A1: durable correlation marker for crash-after-send
+            // reconciliation — proof that THIS execution produced THIS message.
+            idempotencyKey: input.idempotencyKey ?? null,
           });
 
           // 2: human-readable timeline entry.

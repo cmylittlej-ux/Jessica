@@ -71,6 +71,13 @@ export const communications = pgTable(
     externalId: text('external_id'),
     externalMessageId: text('external_message_id'),
     externalConversationId: text('external_conversation_id'),
+    /**
+     * Phase 2 §A1: controlled correlation marker — the outbox executionKey of
+     * the send that produced this outbound message. This is the durable
+     * evidence used by crash-after-send reconciliation ("did the effect
+     * already happen?") without trusting provider-side idempotency.
+     */
+    idempotencyKey: text('idempotency_key'),
     sourceCreatedAt: timestamp('source_created_at', { withTimezone: true }),
     sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),

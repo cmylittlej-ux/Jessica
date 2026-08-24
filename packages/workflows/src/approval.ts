@@ -1,16 +1,23 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
   actionExecutions,
   aiActions,
   aiFeedbacks,
   approvals,
   cases,
+  communications,
   nextAiActionStatus,
   nextApprovalStatus,
   nextCaseStatus,
+  tasks,
+  users,
   type ReosDatabase,
 } from '@reos/db';
-import { statusAfterReplySent } from '@reos/domain';
+import {
+  statusAfterReplySent,
+  BLOCKING_TASK_STATUSES,
+  defaultFollowUpDueAt,
+} from '@reos/domain';
 import { recordAudit } from '@reos/audit';
 import { createMockEmailConnector } from '@reos/connectors';
 import { ok, err, type Result } from '@reos/shared';
@@ -44,6 +51,20 @@ const STALE_EXECUTING_TIMEOUT_MS = 60_000;
 
 function fail(code: WorkflowError['code'], message: string, details?: unknown) {
   return err(new WorkflowError(code, message, details));
+}
+
+/** Either the pooled database or an open transaction — both expose .select(). */
+type DbOrTx = ReosDatabase | Parameters<Parameters<ReosDatabase['transaction']>[0]>[0];
+
+/** Resolve the assignee for auto-created wake-up tasks (admin preferred). */
+async function findResponsibleUserId(db: DbOrTx): Promise<string> {
+  const [admin] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, 'ADMIN'))
+    .limit(1);
+  if (!admin) throw new Error('no responsible user available for wake-up task');
+  return admin.id;
 }
 
 export function createApprovalWorkflow(db: ReosDatabase) {
@@ -222,6 +243,7 @@ export function createApprovalWorkflow(db: ReosDatabase) {
       const executionKey = `exec:${approval.id}:${action.id}`;
       let claimedFresh = false;
       let blockedByExecuting = false;
+      let needsReconciliation = false;
       try {
         await db.transaction(async (tx) => {
           const [existing] = await tx
@@ -240,12 +262,26 @@ export function createApprovalWorkflow(db: ReosDatabase) {
               blockedByExecuting = true;
               return;
             }
-            // Stale lock from a crashed worker — re-claim and retry once.
+            // Phase 2 §A1: a stale EXECUTING lock is NOT proof that the
+            // external effect did not happen. The crash-after-send window
+            // (provider accepted the send, local finalize never ran) leaves
+            // exactly this state. Fail closed: mark for reconciliation and
+            // let the evidence check decide — never blind-resend.
             await tx
               .update(actionExecutions)
-              .set({ status: 'EXECUTING', claimedAt: new Date(), attempts: existing.attempts + 1 })
+              .set({
+                status: 'RECONCILIATION_REQUIRED',
+                claimedAt: new Date(),
+                lastError: 'stale EXECUTING lock — uncertain external effect, reconciliation required',
+              })
               .where(eq(actionExecutions.executionKey, executionKey));
-            claimedFresh = true;
+            needsReconciliation = true;
+            return;
+          }
+
+          if (existing?.status === 'RECONCILIATION_REQUIRED') {
+            // Prior pass already flagged uncertainty — reconcile, don't resend.
+            needsReconciliation = true;
             return;
           }
 
@@ -341,8 +377,92 @@ export function createApprovalWorkflow(db: ReosDatabase) {
                 .where(eq(cases.id, parentCase.id));
             }
           }
+
+          // Phase 2 §A2: WAITING may never be an orphan state — a case that
+          // just started waiting on the customer MUST have a future wake-up
+          // (an active follow-up task with a dueAt). Idempotent: skipped when
+          // any blocking task already exists on the case.
+          if (status === 'EXECUTED' && action.caseId) {
+            const [parentCase] = await tx.select().from(cases).where(eq(cases.id, action.caseId)).limit(1);
+            if (parentCase?.status === 'WAITING') {
+              const active = await tx
+                .select({ id: tasks.id })
+                .from(tasks)
+                .where(
+                  and(eq(tasks.caseId, parentCase.id), inArray(tasks.status, [...BLOCKING_TASK_STATUSES])),
+                )
+                .limit(1);
+              if (!active[0]) {
+                const dueAt = defaultFollowUpDueAt(new Date());
+                await tx.insert(tasks).values({
+                  id: `tsk_${crypto.randomUUID()}`,
+                  caseId: parentCase.id,
+                  assignedUserId:
+                    parentCase.assignedUserId ?? (await findResponsibleUserId(tx)),
+                  title: 'Wake-up: awaiting customer reply — follow up',
+                  description: 'Auto-created wake-up task (Phase 2 §A2): every WAITING case must have a future follow-up.',
+                  status: 'OPEN',
+                  source: 'WORKFLOW',
+                  dueAt,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                });
+                await recordAudit(tx, {
+                  actorType: 'SYSTEM',
+                  actorId: input.actorId,
+                  action: 'workflow.wakeup_created',
+                  entityType: 'Task',
+                  entityId: parentCase.id,
+                  caseId: parentCase.id,
+                  afterData: { reason: 'WAITING_WAKE_UP_INVARIANT', dueAt },
+                  correlationId: action.correlationId ?? null,
+                  metadata: { mock: true },
+                });
+              }
+            }
+          }
         });
       };
+
+      // ---- Phase 2 §A1: uncertain-effect reconciliation ---------------------
+      if (needsReconciliation) {
+        // Evidence: an outbound Communication stamped with THIS executionKey.
+        // Present ⇒ the effect happened (crash hit between provider accept and
+        // local finalize) ⇒ finalize as EXECUTED with that receipt. Absent ⇒
+        // provably not sent ⇒ safe to retry once. Anything else stays
+        // RECONCILIATION_REQUIRED (= NEEDS_REVIEW). Real Outlook will extend
+        // this evidence with Sent-Items lookup + Graph message ids.
+        const [evidence] = await db
+          .select({ id: communications.id })
+          .from(communications)
+          .where(
+            and(
+              eq(communications.idempotencyKey, executionKey),
+              eq(communications.direction, 'OUTBOUND'),
+            ),
+          )
+          .limit(1);
+
+        if (evidence) {
+          // Effect confirmed — reconcile to EXECUTED, never resend.
+          await finishTx('EXECUTED', { communicationId: evidence.id, externalRef: evidence.id });
+          return ok({ actionId: action.id, communicationId: evidence.id, idempotentReplay: true });
+        }
+
+        // Provably no external effect — re-claim and proceed with the send.
+        await db.transaction(async (tx) => {
+          await tx
+            .update(actionExecutions)
+            .set({
+              status: 'EXECUTING',
+              claimedAt: new Date(),
+              lastError: null,
+              attempts: sql`${actionExecutions.attempts} + 1`,
+            })
+            .where(eq(actionExecutions.executionKey, executionKey));
+        });
+        claimedFresh = true;
+      }
 
       if (action.actionType === 'GENERATE_REPLY' || action.actionType === 'SEND_EMAIL') {
         const payload = (action.finalPayload ?? action.proposedPayload) as {

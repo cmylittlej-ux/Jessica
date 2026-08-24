@@ -44,3 +44,10 @@ export {
   statusOnFollowUpDue,
   type CaseWorkflowStatus,
 } from './workflowClosure.ts';
+export {
+  BLOCKING_TASK_STATUSES,
+  DEFAULT_FOLLOW_UP_HORIZON_MS,
+  defaultFollowUpDueAt,
+  isBlockingTaskStatus,
+  type BlockingTaskStatus,
+} from './followUpPolicy.ts';

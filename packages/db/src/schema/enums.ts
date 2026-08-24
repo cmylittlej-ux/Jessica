@@ -271,10 +271,16 @@ export const syncStatusEnum = pgEnum('sync_status', [
 /**
  * Spec §15: outbox execution states. An execution row is created before any
  * external side effect and keyed by an idempotent executionKey.
+ *
+ * Phase 2 §A1: a stale EXECUTING lock must never be blindly resent — it moves
+ * to RECONCILIATION_REQUIRED until evidence proves whether the external effect
+ * already happened (EXECUTED), definitely did not (retry allowed), or remains
+ * unknown (stays here = NEEDS_REVIEW).
  */
 export const executionStatusEnum = pgEnum('execution_status', [
   'PENDING',
   'EXECUTING',
   'EXECUTED',
   'FAILED',
+  'RECONCILIATION_REQUIRED',
 ]);

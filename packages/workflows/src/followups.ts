@@ -3,10 +3,29 @@ import {
   activities,
   cases,
   tasks,
+  users,
   nextCaseStatus,
   type ReosDatabase,
 } from '@reos/db';
-import { statusOnCompletion, statusOnFollowUpDue } from '@reos/domain';
+import {
+  BLOCKING_TASK_STATUSES,
+  defaultFollowUpDueAt,
+  statusOnCompletion,
+  statusOnFollowUpDue,
+} from '@reos/domain';
+
+/** Resolve the assignee for auto-created wake-up tasks (admin preferred). */
+async function findResponsibleUser(db: ReosDatabase): Promise<string> {
+  const [admin] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, 'ADMIN'))
+    .limit(1);
+  if (admin) return admin.id;
+  const [any] = await db.select({ id: users.id }).from(users).limit(1);
+  if (!any) throw new Error('no users exist — run the seed first');
+  return any.id;
+}
 
 /**
  * P0 Closure §1B — follow-up due progression.
@@ -74,7 +93,13 @@ export async function completeFollowUpTask(
   const others = await db
     .select({ id: tasks.id })
     .from(tasks)
-    .where(and(eq(tasks.caseId, task.caseId), ne(tasks.id, taskId), inArray(tasks.status, ['OPEN'])));
+    .where(
+      and(
+        eq(tasks.caseId, task.caseId),
+        ne(tasks.id, taskId),
+        inArray(tasks.status, [...BLOCKING_TASK_STATUSES]),
+      ),
+    );
   const remainingOpenTasks = others.length;
 
   if (remainingOpenTasks === 0) {
@@ -98,4 +123,46 @@ export async function completeFollowUpTask(
     return { taskDone: true, caseCompleted: true, remainingOpenTasks };
   }
   return { taskDone: true, caseCompleted: false, remainingOpenTasks };
+}
+
+/**
+ * Phase 2 §A2 — WAITING wake-up invariant.
+ *
+ * A Case in WAITING must always have a future wake-up mechanism. This
+ * idempotent helper creates exactly one follow-up task when the case is
+ * WAITING and no blocking (OPEN / IN_PROGRESS / WAITING) task exists on it.
+ * Calling it twice never duplicates the wake-up.
+ */
+export async function ensureCaseWakeUp(
+  db: ReosDatabase,
+  caseId: string,
+  now: Date = new Date(),
+): Promise<{ created: boolean; taskId: string | null; reason?: string }> {
+  const [parent] = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
+  if (!parent) return { created: false, taskId: null, reason: 'CASE_NOT_FOUND' };
+  if (parent.status !== 'WAITING') {
+    return { created: false, taskId: null, reason: 'CASE_NOT_WAITING' };
+  }
+
+  const [active] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.caseId, caseId), inArray(tasks.status, [...BLOCKING_TASK_STATUSES])))
+    .limit(1);
+  if (active) return { created: false, taskId: active.id, reason: 'WAKE_UP_EXISTS' };
+
+  const taskId = `tsk_${crypto.randomUUID()}`;
+  await db.insert(tasks).values({
+    id: taskId,
+    caseId,
+    assignedUserId: parent.assignedUserId ?? (await findResponsibleUser(db)),
+    title: 'Wake-up: awaiting customer reply — follow up',
+    description: 'Auto-created wake-up task (Phase 2 §A2): every WAITING case must have a future follow-up.',
+    status: 'OPEN',
+    source: 'WORKFLOW',
+    dueAt: defaultFollowUpDueAt(now),
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { created: true, taskId };
 }
