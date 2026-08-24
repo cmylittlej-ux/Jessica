@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: reos
+          POSTGRES_PASSWORD: reos
+          POSTGRES_DB: reos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://reos:reos@localhost:5432/reos
+      NEXT_TELEMETRY_DISABLED: '1'
+      CI: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Apply migrations
+        run: pnpm db:migrate
+
+      - name: Seed deterministic fixtures
+        run: pnpm db:seed
+
+      # §39: DATABASE_URL is set above — the ci-guard spec fails the build if
+      # it is ever missing, so integration tests can never silently skip.
+      - name: Unit + Integration tests
+        run: pnpm test
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E (mandatory hardening scenarios)
+        run: pnpm e2e

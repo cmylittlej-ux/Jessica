@@ -100,52 +100,50 @@ export default async function InboxPage({
     replyActions.filter((a) => a.caseId).map((a) => [a.caseId as string, a.confidence]),
   );
 
-  const filtered = rows.filter(({ comm, caseStatus, casePriority }) => {
+  // Hardening §12: tabs are driven by the PERSISTED classification
+  // (actionRequired on the communication + workflow status on the case),
+  // not by guessing from the presence of AIActions/approvals.
+  const filtered = rows.filter(({ comm, caseStatus }) => {
     switch (activeTab) {
       case "inbox.tabAttention":
-        return casePriority === "HIGH" || casePriority === "CRITICAL";
+        return comm.actionRequired === "URGENT_ACTION" || comm.actionRequired === "DECISION_REQUIRED";
       case "inbox.tabApproval":
-        return approvalCaseIds.has(comm.caseId);
+        return comm.actionRequired === "APPROVAL_REQUIRED" || approvalCaseIds.has(comm.caseId);
       case "inbox.tabReply":
-        return replyCaseIds.has(comm.caseId);
+        return comm.actionRequired === "REPLY_REQUIRED" || replyCaseIds.has(comm.caseId);
       case "inbox.tabFollowup":
-        return caseStatus === "FOLLOW_UP_DUE" || caseStatus === "WAITING";
+        return comm.actionRequired === "FOLLOW_UP_REQUIRED" || caseStatus === "FOLLOW_UP_DUE" || caseStatus === "WAITING";
       case "inbox.tabReview":
-        return caseStatus === "READY_FOR_REVIEW";
+        return comm.classificationConfidence !== null && comm.classificationConfidence < 0.7 || caseStatus === "READY_FOR_REVIEW";
       case "inbox.tabInformation":
-        return caseStatus !== "READY_FOR_REVIEW" && !replyCaseIds.has(comm.caseId) && !approvalCaseIds.has(comm.caseId) && casePriority !== "HIGH" && casePriority !== "CRITICAL";
+        return (
+          comm.actionRequired === "INFORMATION_ONLY" ||
+          comm.actionRequired === "NO_ACTION" ||
+          comm.actionRequired === "WAITING_FOR_OTHER"
+        );
       default:
         return true;
     }
   });
 
-  const [allProperties, allContacts] = await Promise.all([
+  const [allProperties] = await Promise.all([
     db.select({ id: properties.id, address: properties.addressLine1 }).from(properties).limit(50),
-    db.select({ id: contacts.id, name: contacts.displayName }).from(contacts).limit(120),
   ]);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <PageHeader title={t["inbox.title"]} subtitle={t["inbox.subtitle"]} />
 
-      {/* Simulate inbound email — makes every screen operable end-to-end */}
+      {/* Raw email simulation (Hardening §7): no entity pre-selection — the
+          system resolves contact / property / case itself. Advanced Test
+          Overrides are debug-only and never used by E2E. */}
       <form action={simulateInboundAction} className="mb-5 rounded-lg border border-neutral-200 bg-white p-4">
         <div className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500 mb-2">
           {t["inbox.simulateHeader"]}
         </div>
         <div className="grid grid-cols-[1fr_1fr_2fr] gap-2 mb-2">
-          <select name="propertyId" required aria-label="Property" data-testid="sim-property" className="rounded border border-neutral-300 px-2 py-1.5 text-sm bg-white">
-            <option value="">{t["inbox.phProperty"]}</option>
-            {allProperties.map((p) => (
-              <option key={p.id} value={p.id}>{p.address}</option>
-            ))}
-          </select>
-          <select name="senderContactId" required aria-label="Sender" data-testid="sim-sender" className="rounded border border-neutral-300 px-2 py-1.5 text-sm bg-white">
-            <option value="">{t["inbox.phSender"]}</option>
-            {allContacts.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <input name="fromEmail" required type="email" aria-label="From email" data-testid="sim-from" placeholder="tenant@example.com" className="rounded border border-neutral-300 px-2 py-1.5 text-sm" />
+          <input name="toEmail" type="email" aria-label="To email" data-testid="sim-to" placeholder="neil@bayside.example" defaultValue="neil@bayside.example" className="rounded border border-neutral-300 px-2 py-1.5 text-sm" />
           <input name="subject" aria-label="Subject" data-testid="sim-subject" placeholder={t["inbox.phSubject"]} className="rounded border border-neutral-300 px-2 py-1.5 text-sm" />
         </div>
         <div className="flex gap-2">
@@ -154,6 +152,21 @@ export default async function InboxPage({
             {t["inbox.btnSendProcess"]}
           </button>
         </div>
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] uppercase tracking-widest text-neutral-400 hover:text-neutral-600">Advanced test overrides</summary>
+          <div className="mt-2 flex items-center gap-4">
+            <select name="overridePropertyId" aria-label="Override property (debug only)" data-testid="sim-override-property" className="rounded border border-neutral-300 px-2 py-1 text-xs bg-white">
+              <option value="">— no property override —</option>
+              {allProperties.map((p) => (
+                <option key={p.id} value={p.id}>{p.address}</option>
+              ))}
+            </select>
+            <label className="flex items-center gap-1.5 text-xs text-neutral-500">
+              <input type="checkbox" name="forceAiFailure" data-testid="sim-force-failure" className="rounded border-neutral-300" />
+              Force AI failure (debug)
+            </label>
+          </div>
+        </details>
       </form>
 
       {/* Tabs + search */}
@@ -184,7 +197,10 @@ export default async function InboxPage({
         <EmptyHint>{t["inbox.noMessages"]}</EmptyHint>
       ) : (
         <div className="space-y-1.5">
-          {filtered.map(({ comm, caseTitle, casePriority, caseId, propertyAddress, senderName }) => (
+          {filtered.map(({ comm, caseTitle, casePriority, caseId, propertyAddress, senderName }) => {
+            const senderFallback =
+              (comm.senderData as { email?: string } | null)?.email ?? "unknown sender";
+            return (
             <Link
               key={comm.id}
               href={`/inbox/${comm.id}`}
@@ -194,7 +210,7 @@ export default async function InboxPage({
                 <PriorityBadge priority={casePriority} />
                 <span className="text-xs text-neutral-500">{propertyAddress ?? "—"}</span>
                 <span className="text-xs text-neutral-400">·</span>
-                <span className="text-xs text-neutral-500">{senderName ?? "unknown sender"}</span>
+                <span className="text-xs text-neutral-500">{senderName ?? senderFallback}</span>
                 <ConfidenceBadge score={caseId ? confidenceByCase.get(caseId) ?? null : null} />
                 <span className="ml-auto text-[11px] text-neutral-400">{formatDateTime(comm.receivedAt ?? comm.createdAt)}</span>
               </div>
@@ -207,7 +223,8 @@ export default async function InboxPage({
                 </div>
               )}
             </Link>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

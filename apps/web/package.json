@@ -15,7 +15,9 @@
     "@reos/db": "workspace:*",
     "@reos/workflows": "workspace:*",
     "@reos/shared": "workspace:*",
-    "@reos/ai": "workspace:*"
+    "@reos/ai": "workspace:*",
+    "@reos/domain": "workspace:*",
+    "@reos/audit": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5",

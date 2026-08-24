@@ -1,26 +1,32 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
+  actionExecutions,
   aiActions,
   aiFeedbacks,
   approvals,
-  auditLogs,
+  cases,
   nextAiActionStatus,
   nextApprovalStatus,
+  nextCaseStatus,
   type ReosDatabase,
 } from '@reos/db';
+import { statusAfterReplySent } from '@reos/domain';
+import { recordAudit } from '@reos/audit';
 import { createMockEmailConnector } from '@reos/connectors';
 import { ok, err, type Result } from '@reos/shared';
 import { WorkflowError } from './errors.ts';
 
 /**
- * Approval workflow (Spec §27/§28). The only path from an AI proposal to an
- * external effect:
+ * Approval workflow (Spec §27/§28 + Hardening §13–§15). The only path from an
+ * AI proposal to an external effect:
  *
- *   AIAction.PROPOSED → Approval.PENDING → (user approves) → AIAction.APPROVED
- *   → mock execution → AIAction.EXECUTED → Communication.SENT → Timeline + Audit
+ *   AIAction.PROPOSED → Approval.PENDING → (user approves, in one TRANSACTION)
+ *   → AIAction.APPROVED → outbox ActionExecution (unique executionKey)
+ *   → mock send → AIAction.EXECUTED → Communication.SENT
+ *   → case moves to WAITING with its follow-up task (status closure, §13).
  *
- * Rejection never executes. Edited drafts keep the AI original, the human
- * final version and an AIFeedback=EDITED row (Spec §28).
+ * Rejection never executes. Every execution is idempotent: replaying the same
+ * executionKey can never produce a duplicate outbound email (§15).
  */
 
 export interface DecisionInput {
@@ -37,51 +43,63 @@ export function createApprovalWorkflow(db: ReosDatabase) {
   const email = createMockEmailConnector(db);
 
   return {
-    /** PENDING → APPROVED for both the approval and its AIAction. */
+    /** PENDING → APPROVED for both the approval and its AIAction — atomic. */
     async approve(input: DecisionInput): Promise<Result<{ approvalId: string; actionId: string }, WorkflowError>> {
-      const [approval] = await db.select().from(approvals).where(eq(approvals.id, input.approvalId)).limit(1);
-      if (!approval) return fail('NOT_FOUND', `approval ${input.approvalId} not found`);
-      if (approval.status !== 'PENDING') {
-        return fail('INVALID_STATE', `approval is ${approval.status}, only PENDING can be approved`);
+      try {
+        const result = await db.transaction(async (tx) => {
+          const [approval] = await tx.select().from(approvals).where(eq(approvals.id, input.approvalId)).limit(1);
+          if (!approval) throw new WorkflowError('NOT_FOUND', `approval ${input.approvalId} not found`);
+          if (approval.status !== 'PENDING') {
+            throw new WorkflowError('INVALID_STATE', `approval is ${approval.status}, only PENDING can be approved`);
+          }
+
+          const [action] = await tx.select().from(aiActions).where(eq(aiActions.id, approval.actionId)).limit(1);
+          if (!action) throw new WorkflowError('NOT_FOUND', `AIAction ${approval.actionId} not found`);
+          if (action.status !== 'PROPOSED') {
+            throw new WorkflowError('INVALID_STATE', `AIAction is ${action.status}, expected PROPOSED`);
+          }
+
+          const now = new Date();
+          await tx
+            .update(approvals)
+            .set({
+              status: nextApprovalStatus('PENDING', 'APPROVED'),
+              reviewedAt: now,
+              reviewedBy: input.reviewerId,
+              decisionNote: input.decisionNote ?? null,
+            })
+            .where(eq(approvals.id, approval.id));
+
+          await tx
+            .update(aiActions)
+            .set({ status: nextAiActionStatus('PROPOSED', 'APPROVED') })
+            .where(eq(aiActions.id, action.id));
+
+          // Audit inside the same transaction (§14) so an APPROVED state can
+          // never exist without its audit trail.
+          await recordAudit(tx, {
+            actorType: 'USER',
+            actorId: input.reviewerId,
+            action: 'approval.approved',
+            entityType: 'Approval',
+            entityId: approval.id,
+            caseId: approval.caseId,
+            afterData: { actionId: action.id, note: input.decisionNote ?? null },
+            correlationId: action.correlationId ?? null,
+          });
+          return { approvalId: approval.id, actionId: action.id };
+        });
+        return ok(result);
+      } catch (cause) {
+        if (cause instanceof WorkflowError) return fail(cause.code, cause.message, cause.details);
+        return fail('DEPENDENCY_FAILURE', 'approve transaction failed',
+          cause instanceof Error ? cause.message : String(cause));
       }
-
-      const now = new Date();
-      await db
-        .update(approvals)
-        .set({
-          status: nextApprovalStatus('PENDING', 'APPROVED'),
-          reviewedAt: now,
-          reviewedBy: input.reviewerId,
-          decisionNote: input.decisionNote ?? null,
-        })
-        .where(eq(approvals.id, approval.id));
-
-      const [action] = await db.select().from(aiActions).where(eq(aiActions.id, approval.actionId)).limit(1);
-      if (!action) return fail('NOT_FOUND', `AIAction ${approval.actionId} not found`);
-      if (action.status !== 'PROPOSED') {
-        return fail('INVALID_STATE', `AIAction is ${action.status}, expected PROPOSED`);
-      }
-      await db
-        .update(aiActions)
-        .set({ status: nextAiActionStatus('PROPOSED', 'APPROVED') })
-        .where(eq(aiActions.id, action.id));
-
-      await db.insert(auditLogs).values({
-        id: `aud_${crypto.randomUUID()}`,
-        actorType: 'USER',
-        actorId: input.reviewerId,
-        action: 'approval.approved',
-        entityType: 'Approval',
-        entityId: approval.id,
-        afterData: { actionId: action.id, note: input.decisionNote ?? null },
-        createdAt: now,
-      });
-      return ok({ approvalId: approval.id, actionId: action.id });
     },
 
     /**
-     * §28: user edited the AI draft before approving. Keeps AI original in
-     * proposedPayload, stores the human version in finalPayload and records
+     * §28: user edited the AI draft before approving. Keeps the AI original
+     * in proposedPayload, stores the human version in finalPayload and records
      * an AIFeedback=EDITED training signal.
      */
     async recordEditedDraft(input: {
@@ -89,77 +107,97 @@ export function createApprovalWorkflow(db: ReosDatabase) {
       userId: string;
       finalOutput: Record<string, unknown>;
     }): Promise<Result<{ feedbackId: string }, WorkflowError>> {
-      const [approval] = await db.select().from(approvals).where(eq(approvals.id, input.approvalId)).limit(1);
-      if (!approval) return fail('NOT_FOUND', `approval ${input.approvalId} not found`);
-      const [action] = await db.select().from(aiActions).where(eq(aiActions.id, approval.actionId)).limit(1);
-      if (!action) return fail('NOT_FOUND', `AIAction ${approval.actionId} not found`);
-      if (action.status !== 'PROPOSED') {
-        return fail('INVALID_STATE', 'edits are only allowed while the action is PROPOSED');
-      }
+      try {
+        const result = await db.transaction(async (tx) => {
+          const [approval] = await tx.select().from(approvals).where(eq(approvals.id, input.approvalId)).limit(1);
+          if (!approval) throw new WorkflowError('NOT_FOUND', `approval ${input.approvalId} not found`);
+          const [action] = await tx.select().from(aiActions).where(eq(aiActions.id, approval.actionId)).limit(1);
+          if (!action) throw new WorkflowError('NOT_FOUND', `AIAction ${approval.actionId} not found`);
+          if (action.status !== 'PROPOSED') {
+            throw new WorkflowError('INVALID_STATE', 'edits are only allowed while the action is PROPOSED');
+          }
 
-      const feedbackId = `fed_${crypto.randomUUID()}`;
-      await db.insert(aiFeedbacks).values({
-        id: feedbackId,
-        aiActionId: action.id,
-        userId: input.userId,
-        originalOutput: action.proposedPayload,
-        finalOutput: input.finalOutput,
-        feedbackType: 'EDITED',
-      });
-      await db.update(aiActions).set({ finalPayload: input.finalOutput }).where(eq(aiActions.id, action.id));
-      return ok({ feedbackId });
+          const feedbackId = `fed_${crypto.randomUUID()}`;
+          await tx.insert(aiFeedbacks).values({
+            id: feedbackId,
+            aiActionId: action.id,
+            userId: input.userId,
+            originalOutput: action.proposedPayload,
+            finalOutput: input.finalOutput,
+            feedbackType: 'EDITED',
+          });
+          await tx.update(aiActions).set({ finalPayload: input.finalOutput }).where(eq(aiActions.id, action.id));
+          return { feedbackId };
+        });
+        return ok(result);
+      } catch (cause) {
+        if (cause instanceof WorkflowError) return fail(cause.code, cause.message, cause.details);
+        return fail('DEPENDENCY_FAILURE', 'edit-draft transaction failed',
+          cause instanceof Error ? cause.message : String(cause));
+      }
     },
 
-    /** PENDING → REJECTED. The AIAction is rejected and never executes. */
+    /** PENDING → REJECTED — atomic; the AIAction never executes. */
     async reject(input: DecisionInput): Promise<Result<{ approvalId: string }, WorkflowError>> {
-      const [approval] = await db.select().from(approvals).where(eq(approvals.id, input.approvalId)).limit(1);
-      if (!approval) return fail('NOT_FOUND', `approval ${input.approvalId} not found`);
-      if (approval.status !== 'PENDING') {
-        return fail('INVALID_STATE', `approval is ${approval.status}, only PENDING can be rejected`);
+      try {
+        const result = await db.transaction(async (tx) => {
+          const [approval] = await tx.select().from(approvals).where(eq(approvals.id, input.approvalId)).limit(1);
+          if (!approval) throw new WorkflowError('NOT_FOUND', `approval ${input.approvalId} not found`);
+          if (approval.status !== 'PENDING') {
+            throw new WorkflowError('INVALID_STATE', `approval is ${approval.status}, only PENDING can be rejected`);
+          }
+
+          const now = new Date();
+          await tx
+            .update(approvals)
+            .set({
+              status: nextApprovalStatus('PENDING', 'REJECTED'),
+              reviewedAt: now,
+              reviewedBy: input.reviewerId,
+              decisionNote: input.decisionNote ?? null,
+            })
+            .where(eq(approvals.id, approval.id));
+
+          const [action] = await tx.select().from(aiActions).where(eq(aiActions.id, approval.actionId)).limit(1);
+          if (action && action.status === 'PROPOSED') {
+            await tx
+              .update(aiActions)
+              .set({ status: nextAiActionStatus('PROPOSED', 'REJECTED') })
+              .where(eq(aiActions.id, action.id));
+          }
+
+          await recordAudit(tx, {
+            actorType: 'USER',
+            actorId: input.reviewerId,
+            action: 'approval.rejected',
+            entityType: 'Approval',
+            entityId: approval.id,
+            caseId: approval.caseId,
+            afterData: { actionId: approval.actionId, note: input.decisionNote ?? null },
+            correlationId: action?.correlationId ?? null,
+          });
+          return { approvalId: approval.id };
+        });
+        return ok(result);
+      } catch (cause) {
+        if (cause instanceof WorkflowError) return fail(cause.code, cause.message, cause.details);
+        return fail('DEPENDENCY_FAILURE', 'reject transaction failed',
+          cause instanceof Error ? cause.message : String(cause));
       }
-
-      const now = new Date();
-      await db
-        .update(approvals)
-        .set({
-          status: nextApprovalStatus('PENDING', 'REJECTED'),
-          reviewedAt: now,
-          reviewedBy: input.reviewerId,
-          decisionNote: input.decisionNote ?? null,
-        })
-        .where(eq(approvals.id, approval.id));
-
-      const [action] = await db.select().from(aiActions).where(eq(aiActions.id, approval.actionId)).limit(1);
-      if (action && action.status === 'PROPOSED') {
-        await db
-          .update(aiActions)
-          .set({ status: nextAiActionStatus('PROPOSED', 'REJECTED') })
-          .where(eq(aiActions.id, action.id));
-      }
-
-      await db.insert(auditLogs).values({
-        id: `aud_${crypto.randomUUID()}`,
-        actorType: 'USER',
-        actorId: input.reviewerId,
-        action: 'approval.rejected',
-        entityType: 'Approval',
-        entityId: approval.id,
-        afterData: { actionId: approval.actionId, note: input.decisionNote ?? null },
-        createdAt: now,
-      });
-      return ok({ approvalId: approval.id });
     },
 
     /**
-     * Mock execution of an APPROVED action (Spec §27): GENERATE_REPLY /
-     * SEND_EMAIL go through MockEmailConnector.send — recording SENT status,
-     * Activity, AuditLog and the final content verbatim — then the AIAction
-     * becomes EXECUTED.
+     * Execute an APPROVED action through the OUTBOX (§15):
+     *   1. claim/create the unique ActionExecution row (executionKey),
+     *   2. run the mock connector send,
+     *   3. mark EXECUTED with the receipt as externalRef.
+     * A replay of the same key returns the existing outcome — never a second
+     * send.
      */
     async executeApproved(input: {
       approvalId: string;
       actorId?: string;
-    }): Promise<Result<{ actionId: string; communicationId: string | null }, WorkflowError>> {
+    }): Promise<Result<{ actionId: string; communicationId: string | null; idempotentReplay?: boolean }, WorkflowError>> {
       const [approval] = await db.select().from(approvals).where(eq(approvals.id, input.approvalId)).limit(1);
       if (!approval) return fail('NOT_FOUND', `approval ${input.approvalId} not found`);
       if (approval.status !== 'APPROVED') {
@@ -167,61 +205,140 @@ export function createApprovalWorkflow(db: ReosDatabase) {
       }
       const [action] = await db.select().from(aiActions).where(eq(aiActions.id, approval.actionId)).limit(1);
       if (!action) return fail('NOT_FOUND', `AIAction ${approval.actionId} not found`);
-      if (action.status !== 'APPROVED') {
-        return fail('INVALID_STATE', `AIAction is ${action.status}, expected APPROVED`);
+
+      // ---- Step 1: claim the execution slot atomically ----------------------
+      const executionKey = `exec:${approval.id}:${action.id}`;
+      let claimedFresh = false;
+      try {
+        await db.transaction(async (tx) => {
+          const [existing] = await tx
+            .select()
+            .from(actionExecutions)
+            .where(and(eq(actionExecutions.executionKey, executionKey), eq(actionExecutions.status, 'EXECUTED')))
+            .limit(1);
+          if (existing) return; // idempotent replay — nothing to do
+
+          const [pending] = await tx
+            .select()
+            .from(actionExecutions)
+            .where(and(eq(actionExecutions.executionKey, executionKey), eq(actionExecutions.status, 'EXECUTING')))
+            .limit(1);
+          if (pending) return; // resume a crashed attempt
+
+          await tx.insert(actionExecutions).values({
+            id: `aex_${crypto.randomUUID()}`,
+            actionId: action.id,
+            executionKey,
+            status: 'EXECUTING',
+            attempts: 1,
+            correlationId: action.correlationId ?? null,
+            createdAt: new Date(),
+          });
+          claimedFresh = true;
+        });
+      } catch (cause) {
+        return fail('DEPENDENCY_FAILURE', 'outbox claim failed',
+          cause instanceof Error ? cause.message : String(cause));
       }
 
-      const payload = (action.finalPayload ?? action.proposedPayload) as {
-        subject?: string;
-        bodyEn?: string;
-        bodyZh?: string;
+      // Idempotent replay path: find what already happened.
+      const [alreadyDone] = await db
+        .select()
+        .from(actionExecutions)
+        .where(eq(actionExecutions.executionKey, executionKey))
+        .limit(1);
+      if (!claimedFresh && alreadyDone?.status === 'EXECUTED') {
+        return ok({
+          actionId: action.id,
+          communicationId: null,
+          idempotentReplay: true,
+        });
+      }
+
+      // ---- Step 2–3: perform the effect, then close out the execution -------
+      const finishTx = async (
+        status: 'EXECUTED' | 'FAILED',
+        patch: { communicationId?: string | null; externalRef?: string | null; lastError?: string | null },
+      ) => {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(actionExecutions)
+            .set({
+              status,
+              executedAt: new Date(),
+              externalRef: patch.externalRef ?? null,
+              lastError: patch.lastError ?? null,
+            })
+            .where(eq(actionExecutions.executionKey, executionKey));
+
+          if (status === 'FAILED') {
+            if (action.status === 'APPROVED') {
+              await tx
+                .update(aiActions)
+                .set({ status: nextAiActionStatus('APPROVED', 'FAILED') })
+                .where(eq(aiActions.id, action.id));
+            }
+          } else {
+            await tx
+              .update(aiActions)
+              .set({ status: nextAiActionStatus('APPROVED', 'EXECUTED'), executedAt: new Date() })
+              .where(eq(aiActions.id, action.id));
+          }
+
+          await recordAudit(tx, {
+            actorType: 'SYSTEM',
+            actorId: input.actorId,
+            action: status === 'EXECUTED' ? 'approval.executed' : 'approval.execute_failed',
+            entityType: 'AIAction',
+            entityId: action.id,
+            caseId: action.caseId,
+            afterData: { approvalId: approval.id, executionKey, ...patch },
+            correlationId: action.correlationId ?? null,
+            metadata: { mock: true },
+          });
+
+          // §13 status closure: a sent reply means we now wait on the customer.
+          if (status === 'EXECUTED' && action.caseId) {
+            const [parentCase] = await tx.select().from(cases).where(eq(cases.id, action.caseId)).limit(1);
+            if (parentCase && ['IN_PROGRESS', 'READY_FOR_REVIEW', 'NEW'].includes(parentCase.status)) {
+              const target = statusAfterReplySent(parentCase.status as Parameters<typeof nextCaseStatus>[0]);
+              await tx
+                .update(cases)
+                .set({ status: nextCaseStatus(parentCase.status as Parameters<typeof nextCaseStatus>[0], target), updatedAt: new Date() })
+                .where(eq(cases.id, parentCase.id));
+            }
+          }
+        });
       };
 
-      let communicationId: string | null = null;
       if (action.actionType === 'GENERATE_REPLY' || action.actionType === 'SEND_EMAIL') {
+        const payload = (action.finalPayload ?? action.proposedPayload) as {
+          subject?: string;
+          bodyEn?: string;
+        };
         if (!payload.bodyEn) {
-          // Mark FAILED rather than failing silently (Spec §29).
-          await db
-            .update(aiActions)
-            .set({ status: nextAiActionStatus('APPROVED', 'FAILED') })
-            .where(eq(aiActions.id, action.id));
+          await finishTx('FAILED', { lastError: 'approved reply payload has no bodyEn to send' });
           return fail('DEPENDENCY_FAILURE', 'approved reply payload has no bodyEn to send');
         }
         const sent = await email.send({
           caseId: action.caseId,
-          subject: payload.subject ?? 'Re: your enquiry',
+          subject: payload.subject ?? '(no subject)',
           content: payload.bodyEn,
           language: 'en',
           recipients: { via: 'approval-workflow', approvalId: approval.id },
+          idempotencyKey: executionKey,
         });
         if (!sent.ok) {
-          await db
-            .update(aiActions)
-            .set({ status: nextAiActionStatus('APPROVED', 'FAILED') })
-            .where(eq(aiActions.id, action.id));
+          await finishTx('FAILED', { lastError: sent.error.message });
           return fail('DEPENDENCY_FAILURE', 'mock send failed', sent.error.message);
         }
-        communicationId = sent.value.communicationId;
+        await finishTx('EXECUTED', { communicationId: sent.value.communicationId, externalRef: sent.value.communicationId });
+        return ok({ actionId: action.id, communicationId: sent.value.communicationId });
       }
 
-      await db
-        .update(aiActions)
-        .set({ status: nextAiActionStatus('APPROVED', 'EXECUTED'), executedAt: new Date() })
-        .where(eq(aiActions.id, action.id));
-
-      await db.insert(auditLogs).values({
-        id: `aud_${crypto.randomUUID()}`,
-        actorType: 'SYSTEM',
-        actorId: input.actorId,
-        action: 'approval.executed',
-        entityType: 'AIAction',
-        entityId: action.id,
-        afterData: { approvalId: approval.id, communicationId },
-        metadata: { mock: true },
-        createdAt: new Date(),
-      });
-
-      return ok({ actionId: action.id, communicationId });
+      // Non-external action types complete without a connector call.
+      await finishTx('EXECUTED', { externalRef: null });
+      return ok({ actionId: action.id, communicationId: null });
     },
   };
 }

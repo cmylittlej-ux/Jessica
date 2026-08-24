@@ -5,14 +5,20 @@ import {
   agencies,
   aiActions,
   aiFeedbacks,
+  actionExecutions,
   approvals,
   auditLogs,
   cases,
   communications,
   contacts,
+  externalEntityMappings,
+  inspections,
+  leases,
+  maintenanceJobs,
   properties,
   propertyContacts,
   tasks,
+  tenancies,
   users,
 } from '../schema/index.ts';
 
@@ -24,6 +30,8 @@ export async function seedDatabase(databaseUrl?: string) {
   const db = createDb(databaseUrl);
   const data = buildSeedData();
 
+  await db.delete(actionExecutions);
+  await db.delete(externalEntityMappings);
   await db.delete(activities);
   await db.delete(auditLogs);
   await db.delete(approvals);
@@ -31,7 +39,12 @@ export async function seedDatabase(databaseUrl?: string) {
   await db.delete(aiActions);
   await db.delete(tasks);
   await db.delete(communications);
+  // cases references maintenance_jobs — must go before the PM mirror entities.
   await db.delete(cases);
+  await db.delete(inspections);
+  await db.delete(maintenanceJobs);
+  await db.delete(leases);
+  await db.delete(tenancies);
   await db.delete(propertyContacts);
   await db.delete(properties);
   await db.delete(contacts);
@@ -43,6 +56,12 @@ export async function seedDatabase(databaseUrl?: string) {
   await db.insert(contacts).values(data.contacts);
   await db.insert(properties).values(data.properties);
   await db.insert(propertyContacts).values(data.propertyContacts);
+  // PM mirror entities before cases — fixture cases link to maintenance jobs.
+  await db.insert(tenancies).values(data.tenancies);
+  await db.insert(leases).values(data.leases);
+  await db.insert(maintenanceJobs).values(data.maintenanceJobs);
+  await db.insert(inspections).values(data.inspections);
+  await db.insert(externalEntityMappings).values(data.externalEntityMappings);
   await db.insert(cases).values(data.cases);
   await db.insert(communications).values(data.communications);
   await db.insert(tasks).values(data.tasks);

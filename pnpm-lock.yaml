@@ -35,9 +35,15 @@ importers:
       '@reos/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@reos/audit':
+        specifier: workspace:*
+        version: link:../../packages/audit
       '@reos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@reos/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@reos/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -94,7 +100,11 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
-  packages/audit: {}
+  packages/audit:
+    dependencies:
+      '@reos/db':
+        specifier: workspace:*
+        version: link:../db
 
   packages/connectors:
     dependencies:
@@ -132,12 +142,18 @@ importers:
       '@reos/ai':
         specifier: workspace:*
         version: link:../ai
+      '@reos/audit':
+        specifier: workspace:*
+        version: link:../audit
       '@reos/connectors':
         specifier: workspace:*
         version: link:../connectors
       '@reos/db':
         specifier: workspace:*
         version: link:../db
+      '@reos/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@reos/shared':
         specifier: workspace:*
         version: link:../shared

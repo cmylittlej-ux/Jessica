@@ -1,5 +1,5 @@
 import { desc, eq } from 'drizzle-orm';
-import { activities, auditLogs, communications, cases, type ReosDatabase } from '@reos/db';
+import { activities, actionExecutions, auditLogs, communications, cases, type ReosDatabase } from '@reos/db';
 import { ok, err, type Result } from '@reos/shared';
 import { ConnectorError } from '../errors.ts';
 import type {
@@ -103,17 +103,43 @@ export function createMockEmailConnector(db: ReosDatabase): EmailConnector {
       const now = new Date();
       const id = `comm_${crypto.randomUUID()}`;
 
+      // §15 idempotency guard: the same execution key must never produce a
+      // second outbound message. Checked inside the send transaction.
+      if (input.idempotencyKey) {
+        const [existing] = await db
+          .select({ status: actionExecutions.status })
+          .from(actionExecutions)
+          .where(eq(actionExecutions.executionKey, input.idempotencyKey))
+          .limit(1);
+        if (existing?.status === 'EXECUTED') {
+          return err(
+            new ConnectorError(
+              'VALIDATION',
+              `idempotency: execution ${input.idempotencyKey} already completed — refusing duplicate send`,
+            ),
+          );
+        }
+      }
+
       try {
         await db.transaction(async (tx) => {
           // 1 + 4: SENT status and final content saved verbatim.
+          // §6 party model: an outbound email is authored by a USER — the
+          // recipient contact lives in recipientData / toContactId, never in
+          // sender fields.
           await tx.insert(communications).values({
             id,
             caseId: input.caseId ?? null,
             propertyId,
             direction: 'OUTBOUND',
             channel: 'EMAIL',
-            senderContactId: input.toContactId ?? null,
-            recipientData: input.recipients ?? null,
+            senderType: 'USER',
+            senderUserId: input.senderUserId ?? null,
+            senderContactId: null,
+            recipientData:
+              input.toContactId != null
+                ? { ...(input.recipients ?? {}), toContactId: input.toContactId }
+                : (input.recipients ?? null),
             subject: input.subject,
             originalContent: input.content,
             originalLanguage: input.language ?? 'en',

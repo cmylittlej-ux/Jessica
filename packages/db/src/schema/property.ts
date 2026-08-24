@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
   index,
   pgTable,
@@ -65,8 +65,22 @@ export const propertyContacts = pgTable(
       .defaultNow(),
   },
   (t) => [
-    uniqueIndex('property_contacts_uidx').on(t.propertyId, t.contactId, t.role),
+    // §23: the same contact may hold the same role across multiple historical
+    // periods (rented 2024–2025, left, returned 2027). Each period is a row
+    // with its own validFrom; uniqueness is per-period start.
+    uniqueIndex('property_contacts_period_uidx').on(
+      t.propertyId,
+      t.contactId,
+      t.role,
+      t.validFrom,
+    ),
+    // At most ONE active (open-ended) link per property+contact+role —
+    // prevents duplicate concurrent rows while allowing closed history.
+    uniqueIndex('property_contacts_active_uidx')
+      .on(t.propertyId, t.contactId, t.role)
+      .where(sql`${t.validTo} is null`),
     index('property_contacts_contact_idx').on(t.contactId),
+    index('property_contacts_property_role_idx').on(t.propertyId, t.role),
   ],
 );
 

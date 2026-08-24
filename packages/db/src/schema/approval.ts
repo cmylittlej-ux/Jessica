@@ -13,6 +13,7 @@ import {
   aiActionTypeEnum,
   approvalStatusEnum,
   feedbackTypeEnum,
+  riskLevelEnum,
 } from './enums.ts';
 import { users } from './agency.ts';
 
@@ -34,6 +35,11 @@ export const aiActions = pgTable(
     finalPayload: jsonb('final_payload'),
     /** 0..1, validated by the confidence policy in Phase 3. */
     confidence: real('confidence'),
+    /** §16: business consequence of getting this wrong — independent of
+     *  confidence and computed by the domain risk policy at proposal time. */
+    riskLevel: riskLevelEnum('risk_level'),
+    /** §31: end-to-end workflow correlation id (corr_…). */
+    correlationId: text('correlation_id'),
     status: aiActionStatusEnum('status').notNull().default('PROPOSED'),
     executedAt: timestamp('executed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -55,6 +61,9 @@ export const approvals = pgTable(
       .notNull()
       .references(() => users.id),
     status: approvalStatusEnum('status').notNull().default('PENDING'),
+    /** Snapshot of the AIAction risk at request time — bulk-approve queries
+     *  filter on this column without joining ai_actions. */
+    riskLevel: riskLevelEnum('risk_level'),
     requestedAt: timestamp('requested_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

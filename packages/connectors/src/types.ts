@@ -38,6 +38,8 @@ export interface SendCommunicationInput {
   agencyId?: string;
   caseId?: string | null;
   propertyId?: string | null;
+  /** The user who authored/approved the send (§6: outbound senderType=USER). */
+  senderUserId?: string | null;
   toContactId?: string | null;
   /** Structured recipients, e.g. { to: ['a@b.c'] } — stored as jsonb. */
   recipients?: Record<string, unknown> | null;
@@ -45,6 +47,11 @@ export interface SendCommunicationInput {
   /** Final human-approved content, saved verbatim (Spec §14 Mock Send). */
   content: string;
   language?: string;
+  /**
+   * §15 idempotency: connectors must refuse to perform a second external
+   * effect for the same key. The mock enforces it against the outbox.
+   */
+  idempotencyKey?: string;
 }
 
 export interface SendReceipt {

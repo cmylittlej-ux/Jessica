@@ -17,7 +17,17 @@ export {
   type InboundOutcome,
   type ProcessedOutcome,
   type NeedsReviewOutcome,
+  type InformationOutcome,
   type DuplicateOutcome,
   type InboundWorkflowDeps,
 } from './inbound.ts';
 export { createApprovalWorkflow, type DecisionInput } from './approval.ts';
+export { ingestRawEmail, type RawEmailInput, type IngestResult } from './ingest.ts';
+export {
+  matchContactByEmail,
+  matchProperty,
+  matchCaseForMessage,
+  type CaseMatchDecision,
+  type ContactMatch,
+  type PropertyMatch,
+} from './matching.ts';

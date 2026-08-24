@@ -53,6 +53,11 @@ export interface MockAIProviderOptions {
    * mandatory Low-Confidence E2E scenario (Spec §34) to exercise human fallback.
    */
   fixedConfidence?: number;
+  /**
+   * Hardening §5: inject a provider outage so failure-degradation paths can be
+   * exercised end-to-end (E2E "AI Failure" scenario).
+   */
+  forceFailure?: boolean;
 }
 
 export function createMockAIProvider(options: MockAIProviderOptions = {}): AIProvider & {
@@ -132,6 +137,16 @@ export function createMockAIProvider(options: MockAIProviderOptions = {}): AIPro
     async complete<T>(request: AICompletionRequest<T>): Promise<Result<T, AIError>> {
       calls.push({ task: request.task, tier: request.tier });
 
+      // Fault injection (Hardening §5): simulate provider outage for tests.
+      if (options.forceFailure) {
+        return err(
+          new AIError(
+            'PROVIDER_FAILURE',
+            `forced failure injected for ${request.task}`,
+          ),
+        );
+      }
+
       let candidate: unknown;
       try {
         switch (request.task) {
@@ -200,11 +215,15 @@ export function createMockAIProvider(options: MockAIProviderOptions = {}): AIPro
           }
           case 'GENERATE_REPLY': {
             const input = request.input as {
-              originalSubject?: string | null;
+              originalMessage?: { subject?: string | null; content?: string };
               replyLanguage?: string;
             };
+            // Hardening §10: reply subject must derive from the ORIGINAL
+            // message — "Re: <original subject>", never a generic fallback
+            // unless the original truly had no subject.
+            const originalSubject = input.originalMessage?.subject?.trim();
             candidate = {
-              subject: `Re: ${input.originalSubject ?? 'your enquiry'}`,
+              subject: originalSubject ? `Re: ${originalSubject}` : 'Re: your enquiry',
               bodyEn:
                 'Thank you for your email. We have logged your request and will update you within one business day.\n\nKind regards,\nBayside Property',
               bodyZh:

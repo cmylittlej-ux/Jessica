@@ -219,3 +219,62 @@ export const actorTypeEnum = pgEnum('actor_type', [
   'SYSTEM',
   'EXTERNAL',
 ]);
+
+// --- Foundation Final Hardening ---------------------------------------------------
+// New enumerations are appended at the end of the file (never reorder existing
+// members — Postgres ALTER TYPE ADD VALUE only appends safely).
+
+/** Spec §16: risk is a business consequence, independent of AI confidence. */
+export const riskLevelEnum = pgEnum('risk_level', [
+  'LOW',
+  'MEDIUM',
+  'HIGH',
+  'CRITICAL',
+]);
+
+/**
+ * Spec §6: communication parties. Inbound emails have senderType CONTACT or
+ * EXTERNAL; outbound sends always have senderType USER (a human approved the
+ * content) — never a contact.
+ */
+export const senderTypeEnum = pgEnum('sender_type', [
+  'CONTACT',
+  'USER',
+  'SYSTEM',
+  'EXTERNAL',
+]);
+
+/**
+ * Spec §8: which external system a communication came from. MANUAL covers
+ * user-entered notes; SIMULATION covers the raw-email simulator.
+ */
+export const sourceSystemEnum = pgEnum('source_system', [
+  'MANUAL',
+  'SIMULATION',
+  'OUTLOOK',
+  'PROPERTYME',
+  'GROW',
+]);
+
+/**
+ * Spec §24: mirror-sync health for source-owned entities. Dashboard answers
+ * "is the AI acting on fresh PropertyMe data or three-hour-old data?"
+ */
+export const syncStatusEnum = pgEnum('sync_status', [
+  'SYNCED',
+  'PENDING',
+  'STALE',
+  'ERROR',
+  'ARCHIVED',
+]);
+
+/**
+ * Spec §15: outbox execution states. An execution row is created before any
+ * external side effect and keyed by an idempotent executionKey.
+ */
+export const executionStatusEnum = pgEnum('execution_status', [
+  'PENDING',
+  'EXECUTING',
+  'EXECUTED',
+  'FAILED',
+]);

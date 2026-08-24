@@ -14,6 +14,8 @@
     "@reos/db": "workspace:*",
     "@reos/ai": "workspace:*",
     "@reos/connectors": "workspace:*",
-    "@reos/shared": "workspace:*"
+    "@reos/shared": "workspace:*",
+    "@reos/domain": "workspace:*",
+    "@reos/audit": "workspace:*"
   }
 }

@@ -8,10 +8,14 @@ import {
 } from './enums.ts';
 import { agencies, users } from './agency.ts';
 import { properties } from './property.ts';
+import { maintenanceJobs } from './pm.ts';
 
 /**
  * The system's core business object (Spec §2.2 Case First, §5.5).
  * Emails are merely Communications attached to a Case.
+ *
+ * §18: a Case may link to a source-owned MaintenanceJob — the job is the
+ * PropertyMe fact object, the case is REOS's work-processing layer.
  */
 export const cases = pgTable(
   'cases',
@@ -21,6 +25,7 @@ export const cases = pgTable(
       .notNull()
       .references(() => agencies.id),
     propertyId: text('property_id').references(() => properties.id),
+    maintenanceJobId: text('maintenance_job_id').references(() => maintenanceJobs.id),
     title: text('title').notNull(),
     businessDomain: businessDomainEnum('business_domain').notNull(),
     caseType: caseTypeEnum('case_type').notNull(),
@@ -42,6 +47,7 @@ export const cases = pgTable(
   (t) => [
     index('cases_agency_status_idx').on(t.agencyId, t.status),
     index('cases_property_idx').on(t.propertyId),
+    index('cases_maintenance_job_idx').on(t.maintenanceJobId),
   ],
 );
 
@@ -53,6 +59,10 @@ export const casesRelations = relations(cases, ({ one }) => ({
   property: one(properties, {
     fields: [cases.propertyId],
     references: [properties.id],
+  }),
+  maintenanceJob: one(maintenanceJobs, {
+    fields: [cases.maintenanceJobId],
+    references: [maintenanceJobs.id],
   }),
   assignedUser: one(users, {
     fields: [cases.assignedUserId],

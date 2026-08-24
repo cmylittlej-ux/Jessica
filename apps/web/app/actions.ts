@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   aiActions,
   approvals,
@@ -14,8 +14,10 @@ import {
 } from "@reos/db";
 import type { GeneratedReply } from "@reos/ai";
 import { createAIGateway, createBuildContext, createMockAIProvider } from "@reos/ai";
-import { createApprovalWorkflow, createInboundWorkflow } from "@reos/workflows";
+import { createApprovalWorkflow, createInboundWorkflow, ingestRawEmail } from "@reos/workflows";
+import { bulkApproveDecision, statusOnCompletion } from "@reos/domain";
 import type { Result } from "@reos/shared";
+import { nextCaseStatus, cases as casesTable } from "@reos/db";
 import { getDb } from "./_lib/db";
 import { LANG_COOKIE } from "./_lib/i18n";
 
@@ -38,36 +40,43 @@ async function firstUserId(): Promise<string> {
   return user.id;
 }
 
-/** Simulate an inbound email arriving, then run the full workflow on it. */
+/**
+ * Simulate an inbound email arriving (Hardening §7): a RAW email — from /
+ * to / subject / body — never pre-selected entity ids. Contact, property and
+ * case resolution happen inside the workflow, exactly as a real Outlook
+ * message would experience. "Advanced Test Overrides" are debug-only.
+ */
 export async function simulateInboundAction(formData: FormData): Promise<void> {
   const db = getDb();
-  const propertyId = String(formData.get("propertyId") ?? "");
-  const senderContactId = String(formData.get("senderContactId") ?? "");
-  const subject = String(formData.get("subject") ?? "").trim() || "(no subject)";
+  const fromEmail = String(formData.get("fromEmail") ?? "").trim();
+  const toEmail = String(formData.get("toEmail") ?? "").trim();
+  const subject = String(formData.get("subject") ?? "").trim();
   const content = String(formData.get("content") ?? "").trim();
-  if (!propertyId || !senderContactId || !content) return;
+  if (!fromEmail || !content) return;
 
-  const commId = `com_sim_${crypto.randomUUID().slice(0, 8)}`;
-  await db.insert(communications).values({
-    id: commId,
-    propertyId,
-    direction: "INBOUND",
-    channel: "EMAIL",
-    senderContactId,
-    recipientData: { to: ["neil@bayside.example"] },
+  // Advanced debug overrides (never used by E2E).
+  const overridePropertyId = String(formData.get("overridePropertyId") ?? "").trim();
+  const forceAiFailure = formData.get("forceAiFailure") === "on";
+
+  const ingested = await ingestRawEmail(db, {
+    fromEmail,
+    toEmail: toEmail || undefined,
     subject,
-    originalContent: content,
-    originalLanguage: "en",
-    status: "RECEIVED",
-    externalId: `sim-${commId}`,
-    receivedAt: new Date(),
+    body: content,
+    source: "SIMULATION",
+    debugPropertyId: overridePropertyId || undefined,
   });
+  if (!ingested.ok || ingested.value.duplicate) {
+    invalidate();
+    return;
+  }
 
+  const provider = createMockAIProvider({ forceFailure: forceAiFailure });
   const process = createInboundWorkflow(db, {
-    gateway: createAIGateway({ provider: createMockAIProvider(), db }),
+    gateway: createAIGateway({ provider, db }),
     context: createBuildContext(db),
   });
-  await process(commId);
+  await process(ingested.value.communicationId);
   invalidate();
 }
 
@@ -133,27 +142,36 @@ export async function editAndApproveAction(formData: FormData): Promise<void> {
   invalidate();
 }
 
-/** Approve All — low-risk mock actions only (confidence >= 0.90). */
+/**
+ * Approve All — Hardening §16/§17 gate: an action is bulk-approvable only
+ * when its type is in the explicit allowlist AND riskLevel = LOW AND
+ * confidence ≥ threshold. Everything else needs individual human review.
+ */
 export async function approveAllLowRiskAction(): Promise<void> {
   const db = getDb();
   const pending = await db
-    .select({ id: approvals.id })
+    .select({
+      approvalId: approvals.id,
+      actionType: aiActions.actionType,
+      riskLevel: aiActions.riskLevel,
+      confidence: aiActions.confidence,
+    })
     .from(approvals)
     .innerJoin(aiActions, eq(aiActions.id, approvals.actionId))
-    .where(and(eq(approvals.status, "PENDING")));
+    .where(eq(approvals.status, "PENDING"));
+
   const workflow = createApprovalWorkflow(db);
   const reviewer = await firstUserId();
   for (const row of pending) {
-    // Load confidence and only auto-approve high-confidence proposals.
-    const [action] = await db
-      .select({ confidence: aiActions.confidence })
-      .from(aiActions)
-      .innerJoin(approvals, eq(approvals.actionId, aiActions.id))
-      .where(eq(approvals.id, row.id))
-      .limit(1);
-    if ((action?.confidence ?? 0) < 0.9) continue;
-    const approved = await workflow.approve({ approvalId: row.id, reviewerId: reviewer });
-    if (approved.ok) await workflow.executeApproved({ approvalId: row.id });
+    const verdict = bulkApproveDecision({
+      actionType: row.actionType,
+      riskLevel: row.riskLevel,
+      confidence: row.confidence,
+      threshold: 0.9,
+    });
+    if (!verdict.allowed) continue;
+    const approved = await workflow.approve({ approvalId: row.approvalId, reviewerId: reviewer });
+    if (approved.ok) await workflow.executeApproved({ approvalId: row.approvalId });
   }
   invalidate();
 }
@@ -178,6 +196,47 @@ export async function completeTaskAction(formData: FormData): Promise<void> {
     .update(tasks)
     .set({ status: "DONE", completedAt: new Date(), updatedAt: new Date() })
     .where(eq(tasks.id, taskId));
+
+  // §13 status closure: completing a case's follow-up closes the loop.
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  if (task?.caseId) {
+    const [parent] = await db.select().from(casesTable).where(eq(casesTable.id, task.caseId)).limit(1);
+    if (parent && ["WAITING", "FOLLOW_UP_DUE"].includes(parent.status)) {
+      const target = statusOnCompletion(parent.status as "WAITING" | "FOLLOW_UP_DUE");
+      if (target) {
+        await db
+          .update(casesTable)
+          .set({ status: nextCaseStatus(parent.status as "WAITING" | "FOLLOW_UP_DUE", target), updatedAt: new Date() })
+          .where(eq(casesTable.id, parent.id));
+      }
+    }
+  }
+  invalidate();
+}
+
+/** §9: retry a failed inbound zh translation — derived data, never the original. */
+export async function retryTranslationAction(formData: FormData): Promise<void> {
+  const communicationId = String(formData.get("communicationId") ?? "");
+  if (!communicationId) return;
+  const db = getDb();
+  const [message] = await db
+    .select({ content: communications.originalContent })
+    .from(communications)
+    .where(eq(communications.id, communicationId))
+    .limit(1);
+  if (!message) return;
+  const gateway = createAIGateway({ provider: createMockAIProvider(), db });
+  const result = await gateway.translate({
+    text: message.content,
+    sourceLanguage: "en",
+    targetLanguage: "zh",
+  });
+  if (result.ok) {
+    await db
+      .update(communications)
+      .set({ translatedContentZh: result.value.translatedText })
+      .where(eq(communications.id, communicationId));
+  }
   invalidate();
 }
 
