@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, desc, eq, ilike, inArray, or } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import {
   approvals,
   aiActions,
@@ -86,11 +86,19 @@ export default async function InboxPage({
     .where(eq(approvals.status, "PENDING"));
   const approvalCaseIds = new Set(pendingApprovals.map((a) => a.caseId));
 
+  // One aggregate query instead of one query per rendered row (N+1 fix).
   const replyActions = await db
-    .select({ caseId: aiActions.caseId })
+    .select({
+      caseId: aiActions.caseId,
+      confidence: sql<number>`max(${aiActions.confidence})::float`,
+    })
     .from(aiActions)
-    .where(and(eq(aiActions.actionType, "GENERATE_REPLY"), inArray(aiActions.status, ["PROPOSED", "APPROVED"])));
+    .where(and(eq(aiActions.actionType, "GENERATE_REPLY"), inArray(aiActions.status, ["PROPOSED", "APPROVED"])))
+    .groupBy(aiActions.caseId);
   const replyCaseIds = new Set(replyActions.map((a) => a.caseId));
+  const confidenceByCase = new Map(
+    replyActions.filter((a) => a.caseId).map((a) => [a.caseId as string, a.confidence]),
+  );
 
   const filtered = rows.filter(({ comm, caseStatus, casePriority }) => {
     switch (activeTab) {
@@ -187,7 +195,7 @@ export default async function InboxPage({
                 <span className="text-xs text-neutral-500">{propertyAddress ?? "—"}</span>
                 <span className="text-xs text-neutral-400">·</span>
                 <span className="text-xs text-neutral-500">{senderName ?? "unknown sender"}</span>
-                <ConfidenceInline caseId={caseId} />
+                <ConfidenceBadge score={caseId ? confidenceByCase.get(caseId) ?? null : null} />
                 <span className="ml-auto text-[11px] text-neutral-400">{formatDateTime(comm.receivedAt ?? comm.createdAt)}</span>
               </div>
               <div className="mt-1 text-sm font-medium">{comm.subject}</div>
@@ -204,15 +212,4 @@ export default async function InboxPage({
       )}
     </div>
   );
-}
-
-async function ConfidenceInline({ caseId }: { caseId: string | null }) {
-  if (!caseId) return null;
-  const db = getDb();
-  const [action] = await db
-    .select({ confidence: aiActions.confidence })
-    .from(aiActions)
-    .where(and(eq(aiActions.caseId, caseId), eq(aiActions.actionType, "GENERATE_REPLY")))
-    .limit(1);
-  return <ConfidenceBadge score={action?.confidence ?? null} />;
 }

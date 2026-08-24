@@ -103,7 +103,7 @@ export default async function ApprovalsPage() {
                 {/* Proposed content */}
                 <div className="mt-3 text-[11px] uppercase tracking-wide text-neutral-400 mb-1">{t["approvals.proposedContent"]}</div>
                 {isReply ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="whitespace-pre-wrap rounded border border-neutral-200 bg-white p-3 text-sm">{payload.bodyEn}</div>
                     <div className="whitespace-pre-wrap rounded border border-neutral-200 bg-white p-3 text-sm">{payload.bodyZh}</div>
                   </div>

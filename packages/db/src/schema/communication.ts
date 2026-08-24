@@ -47,6 +47,8 @@ export const communications = pgTable(
   (t) => [
     index('communications_case_idx').on(t.caseId),
     index('communications_sender_idx').on(t.senderContactId),
+    // Inbox list orders by received_at DESC; property 360 lists recent comms.
+    index('communications_received_idx').on(t.receivedAt),
   ],
 );
 

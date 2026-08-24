@@ -84,7 +84,8 @@ export default async function TasksPage({
       {filtered.length === 0 ? (
         <EmptyHint>{t["tasks.empty"]}</EmptyHint>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-3xl">
           <thead>
             <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-400">
               <th className="py-2 pr-2 font-medium">{t["tasks.thPriority"]}</th>
@@ -136,6 +137,7 @@ export default async function TasksPage({
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

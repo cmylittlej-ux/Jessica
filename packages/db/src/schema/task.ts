@@ -37,6 +37,8 @@ export const tasks = pgTable(
   (t) => [
     index('tasks_case_idx').on(t.caseId),
     index('tasks_assignee_status_idx').on(t.assignedUserId, t.status),
+    // Property 360 screen filters open tasks per property.
+    index('tasks_property_idx').on(t.propertyId),
   ],
 );
 

@@ -122,7 +122,7 @@ export default async function InboxDetailPage({
       </div>
 
       {/* Context header (Spec §20) */}
-      <div className="grid grid-cols-6 gap-3 mb-6 text-sm">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6 text-sm">
         <Field label={t["detail.fProperty"]} value={row.propertyAddress} href={comm.propertyId ? `/properties/${comm.propertyId}` : undefined} />
         <Field label={t["detail.fCase"]} value={row.caseTitle} href={row.caseId ? `/cases/${row.caseId}` : undefined} />
         <Field label={t["detail.fContact"]} value={row.senderName ? `${row.senderName}${row.senderEmail ? ` · ${row.senderEmail}` : ""}` : null} />
@@ -136,7 +136,7 @@ export default async function InboxDetailPage({
 
       {/* Original | 中文 (Spec §20 / §25 — original is immutable) */}
       <SectionTitle>{t["detail.originalZh"]}</SectionTitle>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm whitespace-pre-wrap">{comm.originalContent}</div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm whitespace-pre-wrap">
           {comm.translatedContentZh ?? <span className="text-neutral-400">{t["detail.noTranslationYet"]}</span>}

@@ -75,7 +75,7 @@ export default async function AiHomePage() {
       />
 
       {/* Four attention cards (Spec §18) */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card title={t["home.cardUrgent"]} count={urgent.length} tone="alert" href="/tasks?tab=Urgent" />
         <Card title={t["home.cardNeedsApproval"]} count={pendingApprovals.length} tone="warn" href="/approvals" />
         <Card title={t["home.cardWaiting"]} count={waitingOnOthers.length} />

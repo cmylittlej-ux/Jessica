@@ -37,17 +37,17 @@ export default async function RootLayout({
       >
         <div className="flex min-h-screen">
           {/* Sidebar — neutral, compact, keyboard-friendly (Spec §17) */}
-          <aside className="w-52 shrink-0 border-r border-neutral-200 bg-white flex flex-col fixed inset-y-0">
+          <aside className="w-52 shrink-0 border-r border-neutral-200 bg-white flex-col fixed inset-y-0 hidden md:flex">
             <div className="px-4 py-5 border-b border-neutral-200">
               <div className="text-sm font-semibold tracking-tight">REOS</div>
               <div className="text-[11px] text-neutral-500">Foundation MVP · Mock</div>
             </div>
-            <nav className="p-2 space-y-0.5">
+            <nav aria-label="Main" className="p-2 space-y-0.5">
               {NAV.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="block rounded-md px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900"
+                  className="block rounded-md px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-900"
                 >
                   {t[item.key]}
                 </Link>
@@ -61,10 +61,11 @@ export default async function RootLayout({
           </aside>
 
           {/* Top bar — real 中文|EN switch (Spec §25): cookie-only, never
-              touches business state (Phase 6 gate) */}
-          <div className="flex-1 flex flex-col min-w-0 ml-52">
-            <header className="h-12 shrink-0 border-b border-neutral-200 bg-white flex items-center justify-between px-6 sticky top-0 z-10">
-              <div className="text-xs text-neutral-500">{t["layout.subtitle"]}</div>
+              touches business state (Phase 6 gate). On small screens the
+              sidebar hides and a horizontal nav row appears instead. */}
+          <div className="flex-1 flex flex-col min-w-0 md:ml-52">
+            <header className="h-12 shrink-0 border-b border-neutral-200 bg-white flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
+              <div className="text-xs text-neutral-500 truncate">{t["layout.subtitle"]}</div>
               <form action={setLanguageAction} className="flex items-center gap-1 text-xs">
                 <button
                   name="lang"
@@ -91,6 +92,21 @@ export default async function RootLayout({
                 </button>
               </form>
             </header>
+            {/* Mobile navigation (sidebar is md+) */}
+            <nav
+              aria-label="Main mobile"
+              className="md:hidden flex gap-1 overflow-x-auto border-b border-neutral-200 bg-white px-3 py-2 sticky top-12 z-10"
+            >
+              {NAV.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="whitespace-nowrap rounded-md border border-neutral-200 px-3 py-1 text-xs text-neutral-700 hover:bg-neutral-100"
+                >
+                  {t[item.key]}
+                </Link>
+              ))}
+            </nav>
             <main className="flex-1">{children}</main>
           </div>
         </div>
