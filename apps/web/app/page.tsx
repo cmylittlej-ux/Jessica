@@ -1,103 +1,131 @@
-import Image from "next/image";
+import Link from "next/link";
+import { desc, eq, inArray, lte } from "drizzle-orm";
+import { approvals, cases, communications, tasks } from "@reos/db";
+import { getDb } from "./_lib/db";
+import {
+  Card,
+  PageHeader,
+  PriorityBadge,
+  SectionTitle,
+  StatusBadge,
+  EmptyHint,
+  formatDateTime,
+} from "./_components/ui";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+const OPEN_STATUSES = [
+  "NEW",
+  "AI_PROCESSING",
+  "READY_FOR_REVIEW",
+  "IN_PROGRESS",
+  "WAITING",
+  "FOLLOW_UP_DUE",
+] as const;
+
+export default async function AiHomePage() {
+  const db = getDb();
+
+  const openCases = await db
+    .select()
+    .from(cases)
+    .where(inArray(cases.status, OPEN_STATUSES))
+    .orderBy(desc(cases.updatedAt))
+    .limit(100);
+
+  const [pendingApprovals, recentComms] = await Promise.all([
+    db.select({ id: approvals.id }).from(approvals).where(eq(approvals.status, "PENDING")),
+    db.select({ id: communications.id }).from(communications).orderBy(desc(communications.createdAt)).limit(200),
+  ]);
+
+  const urgent = openCases.filter((c) => c.priority === "CRITICAL" || c.priority === "HIGH");
+  const waitingOnOthers = openCases.filter(
+    (c) => c.status === "WAITING" || c.status === "FOLLOW_UP_DUE",
+  );
+  const needsReview = openCases.filter((c) => c.status === "READY_FOR_REVIEW");
+
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+  const dueTasks = await db.select().from(tasks).where(lte(tasks.dueAt, todayEnd));
+  const dueTodayOpen = dueTasks.filter((t) => t.status !== "DONE");
+
+  const picked = new Set<string>();
+  const priorities: typeof openCases = [];
+  for (const c of [...urgent.filter((x) => x.status !== "WAITING"), ...needsReview]) {
+    if (!picked.has(c.id)) {
+      picked.add(c.id);
+      priorities.push(c);
+    }
+  }
+  for (const c of openCases) {
+    if (priorities.length >= 8) break;
+    if (!picked.has(c.id)) {
+      picked.add(c.id);
+      priorities.push(c);
+    }
+  }
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="p-6 max-w-5xl mx-auto">
+      <PageHeader
+        title="Good morning, Neil"
+        subtitle={`AI processed ${recentComms.length} items recently · all data is mock`}
+      />
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      {/* Four attention cards (Spec §18) */}
+      <div className="grid grid-cols-4 gap-3">
+        <Card title="Urgent" count={urgent.length} tone="alert" href="/tasks?tab=Urgent" />
+        <Card title="Needs Approval" count={pendingApprovals.length} tone="warn" href="/approvals" />
+        <Card title="Waiting" count={waitingOnOthers.length} />
+        <Card title="Due Today" count={dueTodayOpen.length} href="/tasks?tab=My+Day" />
+      </div>
+
+      {/* Today's priorities */}
+      <SectionTitle>Today&apos;s priorities</SectionTitle>
+      {priorities.length === 0 ? (
+        <EmptyHint>Nothing needs attention. Simulate an inbound email from the AI Inbox.</EmptyHint>
+      ) : (
+        <div className="space-y-2">
+          {priorities.map((c) => (
+            <Link
+              key={c.id}
+              href={`/cases/${c.id}`}
+              className="block rounded-lg border border-neutral-200 bg-white p-3 hover:border-neutral-300"
+            >
+              <div className="flex items-center gap-2">
+                <PriorityBadge priority={c.priority} />
+                <StatusBadge status={c.status} />
+                <span className="text-xs text-neutral-400">{c.caseType.replaceAll("_", " ")}</span>
+                <span className="ml-auto text-[11px] text-neutral-400">{formatDateTime(c.updatedAt)}</span>
+              </div>
+              <div className="mt-1 text-sm font-medium">{c.title}</div>
+              {c.summary && (
+                <div className="mt-0.5 line-clamp-1 text-xs text-neutral-500">{c.summary.split("\n")[0]}</div>
+              )}
+            </Link>
+          ))}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
+
+      {/* Waiting on others */}
+      <SectionTitle>Waiting on others</SectionTitle>
+      {waitingOnOthers.length === 0 ? (
+        <EmptyHint>No cases are currently blocked on external parties.</EmptyHint>
+      ) : (
+        <div className="space-y-2">
+          {waitingOnOthers.slice(0, 5).map((c) => (
+            <Link
+              key={c.id}
+              href={`/cases/${c.id}`}
+              className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white p-3 text-sm hover:border-neutral-300"
+            >
+              <StatusBadge status={c.status} />
+              <span className="font-medium">{c.title}</span>
+              <span className="ml-auto text-[11px] text-neutral-400">{formatDateTime(c.updatedAt)}</span>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

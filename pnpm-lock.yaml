@@ -32,6 +32,18 @@ importers:
 
   apps/web:
     dependencies:
+      '@reos/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
+      '@reos/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@reos/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@reos/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
       next:
         specifier: 15.5.23
         version: 15.5.23(@playwright/test@1.62.1)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
