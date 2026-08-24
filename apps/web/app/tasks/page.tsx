@@ -2,12 +2,20 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { cases, properties, tasks } from "@reos/db";
 import { getDb } from "../_lib/db";
+import { getI18n } from "../_lib/i18n";
 import { completeTaskAction } from "../actions";
 import { EmptyHint, PageHeader, PriorityBadge, StatusBadge, formatDateTime } from "../_components/ui";
 
 export const dynamic = "force-dynamic";
 
 const TABS = ["My Day", "Urgent", "Waiting", "All"] as const;
+
+const TAB_KEY: Record<(typeof TABS)[number], string> = {
+  "My Day": "tasks.myDay",
+  Urgent: "tasks.urgent",
+  Waiting: "tasks.waiting",
+  All: "tasks.all",
+};
 
 export default async function TasksPage({
   searchParams,
@@ -16,6 +24,7 @@ export default async function TasksPage({
 }) {
   const params = await searchParams;
   const tab = TABS.includes((params.tab ?? "All") as (typeof TABS)[number]) ? params.tab ?? "All" : "All";
+  const { t } = await getI18n();
   const db = getDb();
 
   const rows = await db
@@ -56,35 +65,35 @@ export default async function TasksPage({
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <PageHeader title="My Tasks" subtitle="AI-created and human tasks in one queue. Completing writes the audit trail." />
+      <PageHeader title={t["tasks.title"]} subtitle={t["tasks.subtitle"]} />
 
       <div className="flex items-center gap-1 border-b border-neutral-200 mb-3">
-        {TABS.map((t) => (
+        {TABS.map((tab_) => (
           <Link
-            key={t}
-            href={`/tasks?tab=${encodeURIComponent(t)}`}
+            key={tab_}
+            href={`/tasks?tab=${encodeURIComponent(tab_)}`}
             className={`px-3 py-1.5 text-sm rounded-t -mb-px ${
-              t === tab ? "border border-b-white border-neutral-200 bg-white font-medium" : "text-neutral-500 hover:text-neutral-800"
+              tab_ === tab ? "border border-b-white border-neutral-200 bg-white font-medium" : "text-neutral-500 hover:text-neutral-800"
             }`}
           >
-            {t}
+            {t[TAB_KEY[tab_] as keyof typeof t]}
           </Link>
         ))}
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyHint>No tasks in this view.</EmptyHint>
+        <EmptyHint>{t["tasks.empty"]}</EmptyHint>
       ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-400">
-              <th className="py-2 pr-2 font-medium">Priority</th>
-              <th className="py-2 pr-2 font-medium">Task</th>
-              <th className="py-2 pr-2 font-medium">Property</th>
-              <th className="py-2 pr-2 font-medium">Case</th>
-              <th className="py-2 pr-2 font-medium">Source</th>
-              <th className="py-2 pr-2 font-medium">Due</th>
-              <th className="py-2 pr-2 font-medium">Status</th>
+              <th className="py-2 pr-2 font-medium">{t["tasks.thPriority"]}</th>
+              <th className="py-2 pr-2 font-medium">{t["tasks.thTask"]}</th>
+              <th className="py-2 pr-2 font-medium">{t["tasks.thProperty"]}</th>
+              <th className="py-2 pr-2 font-medium">{t["tasks.thCase"]}</th>
+              <th className="py-2 pr-2 font-medium">{t["tasks.thSource"]}</th>
+              <th className="py-2 pr-2 font-medium">{t["tasks.thDue"]}</th>
+              <th className="py-2 pr-2 font-medium">{t["tasks.thStatus"]}</th>
               <th className="py-2 font-medium"></th>
             </tr>
           </thead>
@@ -117,7 +126,7 @@ export default async function TasksPage({
                       <form action={completeTaskAction}>
                         <input type="hidden" name="taskId" value={task.id} />
                         <button className="rounded border border-emerald-300 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50">
-                          Done
+                          {t["tasks.done"]}
                         </button>
                       </form>
                     )}

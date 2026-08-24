@@ -11,6 +11,7 @@ import {
   tasks,
 } from "@reos/db";
 import { getDb } from "../../_lib/db";
+import { getI18n, fmt } from "../../_lib/i18n";
 import { completeTaskAction } from "../../actions";
 import {
   EmptyHint,
@@ -34,6 +35,7 @@ export default async function PropertyDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const { t } = await getI18n();
   const db = getDb();
 
   const [property] = await db.select().from(properties).where(eq(properties.id, id)).limit(1);
@@ -81,7 +83,7 @@ export default async function PropertyDetailPage({
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <Link href="/properties" className="text-xs text-neutral-500 hover:text-neutral-800">← Back to Properties</Link>
+      <Link href="/properties" className="text-xs text-neutral-500 hover:text-neutral-800">{t["pdetail.back"]}</Link>
       <div className="mt-2 flex items-start gap-3">
         <PageHeader
           title={`${property.addressLine1}${property.addressLine2 ? `, ${property.addressLine2}` : ""}`}
@@ -91,9 +93,9 @@ export default async function PropertyDetailPage({
       </div>
 
       {/* People by role */}
-      <SectionTitle>People ({people.length})</SectionTitle>
+      <SectionTitle>{fmt(t["pdetail.people"], { n: people.length })}</SectionTitle>
       {people.length === 0 ? (
-        <EmptyHint>No active contacts linked.</EmptyHint>
+        <EmptyHint>{t["pdetail.noPeople"]}</EmptyHint>
       ) : (
         <div className="space-y-2">
           {[...roles.entries()].map(([role, list]) => (
@@ -112,10 +114,10 @@ export default async function PropertyDetailPage({
         </div>
       )}
 
- {/* Open cases */}
-      <SectionTitle>Open Cases ({openCases.length})</SectionTitle>
+      {/* Open cases */}
+      <SectionTitle>{fmt(t["pdetail.openCases"], { n: openCases.length })}</SectionTitle>
       {openCases.length === 0 ? (
-        <EmptyHint>Nothing open — quiet property.</EmptyHint>
+        <EmptyHint>{t["pdetail.quiet"]}</EmptyHint>
       ) : (
         <div className="space-y-1.5">
           {openCases.map((c) => (
@@ -132,19 +134,19 @@ export default async function PropertyDetailPage({
       )}
 
       {/* Open tasks */}
-      <SectionTitle>Open Tasks ({propTasks.length})</SectionTitle>
+      <SectionTitle>{fmt(t["pdetail.openTasks"], { n: propTasks.length })}</SectionTitle>
       {propTasks.length === 0 ? (
-        <EmptyHint>No open tasks.</EmptyHint>
+        <EmptyHint>{t["pdetail.noTasks"]}</EmptyHint>
       ) : (
         <div className="space-y-1">
-          {propTasks.map((t) => (
-            <div key={t.id} className="flex items-center gap-2 rounded border border-neutral-200 bg-white px-3 py-2 text-sm">
-              <PriorityBadge priority={t.priority} />
-              <span>{t.title}</span>
+          {propTasks.map((task) => (
+            <div key={task.id} className="flex items-center gap-2 rounded border border-neutral-200 bg-white px-3 py-2 text-sm">
+              <PriorityBadge priority={task.priority} />
+              <span>{task.title}</span>
               <span className="ml-auto flex items-center gap-2">
-                <span className="text-[11px] text-neutral-400">due {formatDateTime(t.dueAt)}</span>
+                <span className="text-[11px] text-neutral-400">{fmt(t["pdetail.due"], { t: formatDateTime(task.dueAt) })}</span>
                 <form action={completeTaskAction}>
-                  <input type="hidden" name="taskId" value={t.id} />
+                  <input type="hidden" name="taskId" value={task.id} />
                   <button className="rounded border border-emerald-300 bg-white px-2 py-0.5 text-xs text-emerald-700 hover:bg-emerald-50">Done</button>
                 </form>
               </span>
@@ -154,9 +156,9 @@ export default async function PropertyDetailPage({
       )}
 
       {/* Recent communications */}
-      <SectionTitle>Recent Communications</SectionTitle>
+      <SectionTitle>{t["pdetail.recentComms"]}</SectionTitle>
       {recentComms.length === 0 ? (
-        <EmptyHint>No communications recorded.</EmptyHint>
+        <EmptyHint>{t["pdetail.noComms"]}</EmptyHint>
       ) : (
         <div className="space-y-1">
           {recentComms.map((c) => (
@@ -170,9 +172,9 @@ export default async function PropertyDetailPage({
       )}
 
       {/* Activity timeline */}
-      <SectionTitle>Activity</SectionTitle>
+      <SectionTitle>{t["pdetail.activity"]}</SectionTitle>
       {timeline.length === 0 ? (
-        <EmptyHint>No activity recorded.</EmptyHint>
+        <EmptyHint>{t["pdetail.noActivity"]}</EmptyHint>
       ) : (
         <ol className="space-y-1">
           {timeline.map((a) => (
@@ -189,11 +191,9 @@ export default async function PropertyDetailPage({
       )}
 
       {/* Simulated portfolio data — clearly labelled per Spec §17/§21 */}
-      <SectionTitle>Rent &amp; Ledger</SectionTitle>
+      <SectionTitle>{t["pdetail.rentLedger"]}</SectionTitle>
       <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/60 p-4 text-sm text-amber-800">
-        <strong>SIMULATED DATA</strong> — rent roll / ledger figures are mock values for the Foundation MVP
-        (no live PropertyMe integration). Weekly rent: <span className="font-mono">$620.00</span> ·
-        Arrears: <span className="font-mono">$0.00</span> · Last inspection: <span className="font-mono">2026-06-14</span>.
+        {fmt(t["pdetail.simulated"], { rent: "$620.00", arrears: "$0.00", inspection: "2026-06-14" })}
       </div>
     </div>
   );

@@ -2,12 +2,14 @@ import Link from "next/link";
 import { sql } from "drizzle-orm";
 import { cases, properties, propertyContacts } from "@reos/db";
 import { getDb } from "../_lib/db";
+import { getI18n, fmt } from "../_lib/i18n";
 import { EmptyHint, PageHeader, StatusBadge } from "../_components/ui";
 
 export const dynamic = "force-dynamic";
 
 /** Screen 7a — Properties list with open-case counts. */
 export default async function PropertiesPage() {
+  const { t } = await getI18n();
   const db = getDb();
 
   const rows = await db
@@ -34,10 +36,10 @@ export default async function PropertiesPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <PageHeader title="Properties" subtitle="Every property is a 360° view — click through for contacts, cases and history." />
+      <PageHeader title={t["props.title"]} subtitle={t["props.subtitle"]} />
 
       {rows.length === 0 ? (
-        <EmptyHint>No properties — run pnpm db:seed.</EmptyHint>
+        <EmptyHint>{t["props.empty"]}</EmptyHint>
       ) : (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
           {rows.map((p) => (
@@ -53,10 +55,10 @@ export default async function PropertiesPage() {
               </div>
               <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-500">
                 <span className="rounded bg-neutral-100 px-1.5 py-0.5">{p.propertyType}</span>
-                <span className="rounded bg-neutral-100 px-1.5 py-0.5">{p.contactCount} contacts</span>
+                <span className="rounded bg-neutral-100 px-1.5 py-0.5">{fmt(t["props.contactsCount"], { n: p.contactCount })}</span>
                 {p.openCases > 0 && (
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700">
-                    {p.openCases} open {p.openCases === 1 ? "case" : "cases"}
+                    {fmt(t["props.openCases"], { n: p.openCases })}
                   </span>
                 )}
                 <span className="ml-auto uppercase text-neutral-400">{p.source}</span>

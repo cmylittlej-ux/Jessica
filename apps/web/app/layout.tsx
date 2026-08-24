@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
+import { getI18n } from "./_lib/i18n";
+import { setLanguageAction } from "./actions";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,20 +16,22 @@ export const metadata: Metadata = {
 };
 
 const NAV = [
-  { href: "/", label: "AI Home", zh: "AI 首页" },
-  { href: "/inbox", label: "AI Inbox", zh: "AI 收件箱" },
-  { href: "/tasks", label: "Tasks", zh: "任务" },
-  { href: "/approvals", label: "Approvals", zh: "审批" },
-  { href: "/properties", label: "Properties", zh: "房产" },
-];
+  { href: "/", key: "nav.home" },
+  { href: "/inbox", key: "nav.inbox" },
+  { href: "/tasks", key: "nav.tasks" },
+  { href: "/approvals", key: "nav.approvals" },
+  { href: "/properties", key: "nav.properties" },
+] as const;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { lang, t } = await getI18n();
+
   return (
-    <html lang="en">
+    <html lang={lang === "zh" ? "zh-CN" : "en"}>
       <body
         className={`${geistSans.variable} antialiased bg-neutral-50 text-neutral-900`}
       >
@@ -45,29 +49,47 @@ export default function RootLayout({
                   href={item.href}
                   className="block rounded-md px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900"
                 >
-                  {item.label}
-                  <span className="ml-1.5 text-[11px] text-neutral-400">{item.zh}</span>
+                  {t[item.key]}
                 </Link>
               ))}
             </nav>
             <div className="mt-auto px-4 py-4 text-[10px] leading-relaxed text-neutral-400 border-t border-neutral-200">
-              Local-only · Mock data
+              {t["layout.footer1"]}
               <br />
-              No real APIs connected
+              {t["layout.footer2"]}
             </div>
           </aside>
 
-          {/* Top bar with bilingual placeholder toggle (full UX in Phase 6) */}
+          {/* Top bar — real 中文|EN switch (Spec §25): cookie-only, never
+              touches business state (Phase 6 gate) */}
           <div className="flex-1 flex flex-col min-w-0 ml-52">
             <header className="h-12 shrink-0 border-b border-neutral-200 bg-white flex items-center justify-between px-6 sticky top-0 z-10">
-              <div className="text-xs text-neutral-500">
-                Real Estate AI Operating System — Melbourne
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <button className="rounded border border-neutral-300 px-2 py-1 font-medium">EN</button>
+              <div className="text-xs text-neutral-500">{t["layout.subtitle"]}</div>
+              <form action={setLanguageAction} className="flex items-center gap-1 text-xs">
+                <button
+                  name="lang"
+                  value="en"
+                  className={`rounded px-2.5 py-1 font-medium border ${
+                    lang === "en"
+                      ? "bg-neutral-900 text-white border-neutral-900"
+                      : "border-neutral-300 text-neutral-500 hover:bg-neutral-100"
+                  }`}
+                >
+                  EN
+                </button>
                 <span className="text-neutral-300">|</span>
-                <button className="rounded px-2 py-1 text-neutral-500 hover:bg-neutral-100">中文</button>
-              </div>
+                <button
+                  name="lang"
+                  value="zh"
+                  className={`rounded px-2.5 py-1 font-medium border ${
+                    lang === "zh"
+                      ? "bg-neutral-900 text-white border-neutral-900"
+                      : "border-neutral-300 text-neutral-500 hover:bg-neutral-100"
+                  }`}
+                >
+                  中文
+                </button>
+              </form>
             </header>
             <main className="flex-1">{children}</main>
           </div>

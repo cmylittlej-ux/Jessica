@@ -13,6 +13,7 @@ import {
   tasks,
 } from "@reos/db";
 import { getDb } from "../../_lib/db";
+import { getI18n, fmt } from "../../_lib/i18n";
 import { completeTaskAction, createTaskAction } from "../../actions";
 import {
   ConfidenceBadge,
@@ -37,6 +38,7 @@ export default async function CaseDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const { t } = await getI18n();
   const db = getDb();
 
   const [row] = await db
@@ -76,9 +78,12 @@ export default async function CaseDetailPage({
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-800">← Back to AI Home</Link>
+      <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-800">{t["case.backHome"]}</Link>
       <div className="mt-2 flex items-start gap-3">
-        <PageHeader title={kase.title} subtitle={`${kase.caseType} · opened ${formatDateTime(kase.openedAt)}${kase.closedAt ? ` · closed ${formatDateTime(kase.closedAt)}` : ""}`} />
+        <PageHeader
+          title={kase.title}
+          subtitle={`${kase.caseType} · ${fmt(t["case.opened"], { t: formatDateTime(kase.openedAt) })}${kase.closedAt ? ` · ${fmt(t["case.closed"], { t: formatDateTime(kase.closedAt) })}` : ""}`}
+        />
         <div className="mt-1 flex gap-2">
           <PriorityBadge priority={kase.priority} />
           <StatusBadge status={kase.status} />
@@ -96,15 +101,15 @@ export default async function CaseDetailPage({
       </div>
 
       {/* AI Summary */}
-      <SectionTitle>AI Summary</SectionTitle>
+      <SectionTitle>{t["case.aiSummary"]}</SectionTitle>
       <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm whitespace-pre-wrap">
-        {kase.summary ?? <span className="text-neutral-400">No summary yet.</span>}
+        {kase.summary ?? <span className="text-neutral-400">{t["case.noSummary"]}</span>}
       </div>
 
       {/* Communications */}
-      <SectionTitle>Communications ({comms.length})</SectionTitle>
+      <SectionTitle>{fmt(t["case.comms"], { n: comms.length })}</SectionTitle>
       {comms.length === 0 ? (
-        <EmptyHint>No communications attached to this case.</EmptyHint>
+        <EmptyHint>{t["case.noComms"]}</EmptyHint>
       ) : (
         <div className="space-y-1.5">
           {comms.map((c) => (
@@ -113,7 +118,6 @@ export default async function CaseDetailPage({
                 <StatusBadge status={c.direction} />
                 <StatusBadge status={c.channel} />
                 <span>{formatDateTime(c.receivedAt ?? c.sentAt ?? c.createdAt)}</span>
-                <span className="ml-auto"><ConfidenceBadge score={null} /></span>
               </div>
               <div className="mt-1 text-sm font-medium">{c.subject ?? "(no subject)"}</div>
               <div className="line-clamp-1 text-xs text-neutral-500">{c.originalContent}</div>
@@ -123,27 +127,27 @@ export default async function CaseDetailPage({
       )}
 
       {/* Tasks */}
-      <SectionTitle>Tasks ({caseTasks.filter((t) => t.status !== "DONE").length} open)</SectionTitle>
+      <SectionTitle>{fmt(t["case.tasksOpen"], { n: caseTasks.filter((task) => task.status !== "DONE").length })}</SectionTitle>
       <form action={createTaskAction} className="mb-2 flex gap-2">
         <input type="hidden" name="caseId" value={id} />
-        <input name="title" required placeholder="New task title…" className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm" />
-        <button className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-100">Add task</button>
+        <input name="title" required placeholder={t["case.addTaskPh"]} className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm" />
+        <button className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-100">{t["case.btnAddTask"]}</button>
       </form>
       {caseTasks.length === 0 ? (
-        <EmptyHint>No tasks on this case.</EmptyHint>
+        <EmptyHint>{t["case.noTasks"]}</EmptyHint>
       ) : (
         <div className="space-y-1">
-          {caseTasks.map((t) => (
-            <div key={t.id} className="flex items-center gap-2 rounded border border-neutral-200 bg-white px-3 py-2 text-sm">
-              <PriorityBadge priority={t.priority} />
-              <span className={t.status === "DONE" ? "line-through text-neutral-400" : ""}>{t.title}</span>
-              <span className="text-[10px] uppercase text-neutral-400">{t.source}</span>
+          {caseTasks.map((task) => (
+            <div key={task.id} className="flex items-center gap-2 rounded border border-neutral-200 bg-white px-3 py-2 text-sm">
+              <PriorityBadge priority={task.priority} />
+              <span className={task.status === "DONE" ? "line-through text-neutral-400" : ""}>{task.title}</span>
+              <span className="text-[10px] uppercase text-neutral-400">{task.source}</span>
               <span className="ml-auto flex items-center gap-2">
-                <StatusBadge status={t.status} />
-                {t.status !== "DONE" && (
+                <StatusBadge status={task.status} />
+                {task.status !== "DONE" && (
                   <form action={completeTaskAction}>
-                    <input type="hidden" name="taskId" value={t.id} />
-                    <button className="rounded border border-emerald-300 bg-white px-2 py-0.5 text-xs text-emerald-700 hover:bg-emerald-50">Done</button>
+                    <input type="hidden" name="taskId" value={task.id} />
+                    <button className="rounded border border-emerald-300 bg-white px-2 py-0.5 text-xs text-emerald-700 hover:bg-emerald-50">{t["case.done"]}</button>
                   </form>
                 )}
               </span>
@@ -153,9 +157,9 @@ export default async function CaseDetailPage({
       )}
 
       {/* Property contacts */}
-      <SectionTitle>People on this Property</SectionTitle>
+      <SectionTitle>{t["case.people"]}</SectionTitle>
       {people.length === 0 ? (
-        <EmptyHint>No active contacts linked to the property.</EmptyHint>
+        <EmptyHint>{t["case.noPeople"]}</EmptyHint>
       ) : (
         <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
           {people.map(({ pc, contact }) => (
@@ -169,9 +173,9 @@ export default async function CaseDetailPage({
       )}
 
       {/* AI actions */}
-      <SectionTitle>AI Actions</SectionTitle>
+      <SectionTitle>{t["case.aiActions"]}</SectionTitle>
       {aiRows.length === 0 ? (
-        <EmptyHint>No AI actions recorded.</EmptyHint>
+        <EmptyHint>{t["case.noAiActions"]}</EmptyHint>
       ) : (
         <div className="space-y-1">
           {aiRows.map((a) => (
@@ -186,7 +190,7 @@ export default async function CaseDetailPage({
       )}
 
       {/* Timeline */}
-      <SectionTitle>Timeline</SectionTitle>
+      <SectionTitle>{t["case.timeline"]}</SectionTitle>
       {timeline.length === 0 ? (
         <EmptyHint>No activity recorded.</EmptyHint>
       ) : (
@@ -204,7 +208,7 @@ export default async function CaseDetailPage({
       {/* Audit trail (read-only, append-only) */}
       {audits.length > 0 && (
         <>
-          <SectionTitle>Audit Trail (append-only)</SectionTitle>
+          <SectionTitle>{t["case.auditTrail"]}</SectionTitle>
           <div className="space-y-1">
             {audits.map((l) => (
               <div key={l.id} className="rounded border border-neutral-100 bg-neutral-50 px-3 py-1.5 font-mono text-[11px] text-neutral-600">

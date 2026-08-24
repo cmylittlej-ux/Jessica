@@ -2,6 +2,7 @@ import Link from "next/link";
 import { desc, eq, inArray, lte } from "drizzle-orm";
 import { approvals, cases, communications, tasks } from "@reos/db";
 import { getDb } from "./_lib/db";
+import { getI18n, fmt } from "./_lib/i18n";
 import {
   Card,
   PageHeader,
@@ -24,12 +25,13 @@ const OPEN_STATUSES = [
 ] as const;
 
 export default async function AiHomePage() {
+  const { t } = await getI18n();
   const db = getDb();
 
   const openCases = await db
     .select()
     .from(cases)
-    .where(inArray(cases.status, OPEN_STATUSES))
+    .where(inArray(cases.status, [...OPEN_STATUSES]))
     .orderBy(desc(cases.updatedAt))
     .limit(100);
 
@@ -68,22 +70,22 @@ export default async function AiHomePage() {
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <PageHeader
-        title="Good morning, Neil"
-        subtitle={`AI processed ${recentComms.length} items recently · all data is mock`}
+        title={t["home.greeting"]}
+        subtitle={fmt(t["home.subtitle"], { n: recentComms.length })}
       />
 
       {/* Four attention cards (Spec §18) */}
       <div className="grid grid-cols-4 gap-3">
-        <Card title="Urgent" count={urgent.length} tone="alert" href="/tasks?tab=Urgent" />
-        <Card title="Needs Approval" count={pendingApprovals.length} tone="warn" href="/approvals" />
-        <Card title="Waiting" count={waitingOnOthers.length} />
-        <Card title="Due Today" count={dueTodayOpen.length} href="/tasks?tab=My+Day" />
+        <Card title={t["home.cardUrgent"]} count={urgent.length} tone="alert" href="/tasks?tab=Urgent" />
+        <Card title={t["home.cardNeedsApproval"]} count={pendingApprovals.length} tone="warn" href="/approvals" />
+        <Card title={t["home.cardWaiting"]} count={waitingOnOthers.length} />
+        <Card title={t["home.cardDueToday"]} count={dueTodayOpen.length} href="/tasks?tab=My+Day" />
       </div>
 
       {/* Today's priorities */}
-      <SectionTitle>Today&apos;s priorities</SectionTitle>
+      <SectionTitle>{t["home.priorities"]}</SectionTitle>
       {priorities.length === 0 ? (
-        <EmptyHint>Nothing needs attention. Simulate an inbound email from the AI Inbox.</EmptyHint>
+        <EmptyHint>{t["home.emptyPriorities"]}</EmptyHint>
       ) : (
         <div className="space-y-2">
           {priorities.map((c) => (
@@ -108,9 +110,9 @@ export default async function AiHomePage() {
       )}
 
       {/* Waiting on others */}
-      <SectionTitle>Waiting on others</SectionTitle>
+      <SectionTitle>{t["home.waitingTitle"]}</SectionTitle>
       {waitingOnOthers.length === 0 ? (
-        <EmptyHint>No cases are currently blocked on external parties.</EmptyHint>
+        <EmptyHint>{t["home.waitingEmpty"]}</EmptyHint>
       ) : (
         <div className="space-y-2">
           {waitingOnOthers.slice(0, 5).map((c) => (

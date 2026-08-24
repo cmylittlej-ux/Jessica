@@ -11,6 +11,8 @@ import {
   properties,
 } from "@reos/db";
 import { getDb } from "../../_lib/db";
+import { getI18n, fmt } from "../../_lib/i18n";
+import { getDict } from "../../_lib/dictionary";
 import {
   approveAndSendAction,
   approveAction,
@@ -18,6 +20,7 @@ import {
   editAndApproveAction,
   rejectAction,
 } from "../../actions";
+import { ComposeBox } from "../../_components/compose-box";
 import {
   ConfidenceBadge,
   PageHeader,
@@ -35,6 +38,7 @@ export default async function InboxDetailPage({
 }) {
   const { id } = await params;
   const db = getDb();
+  const { lang, t } = await getI18n();
 
   const [row] = await db
     .select({
@@ -109,53 +113,56 @@ export default async function InboxDetailPage({
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <Link href="/inbox" className="text-xs text-neutral-500 hover:text-neutral-800">← Back to Inbox</Link>
+      <Link href="/inbox" className="text-xs text-neutral-500 hover:text-neutral-800">{t["detail.backToInbox"]}</Link>
       <div className="mt-2">
-        <PageHeader title={comm.subject ?? "(no subject)"} subtitle={`Received ${formatDateTime(comm.receivedAt ?? comm.createdAt)} · ${comm.channel}`} />
+        <PageHeader
+          title={comm.subject ?? "(no subject)"}
+          subtitle={fmt(t["detail.receivedAt"], { t: formatDateTime(comm.receivedAt ?? comm.createdAt), ch: comm.channel })}
+        />
       </div>
 
       {/* Context header (Spec §20) */}
       <div className="grid grid-cols-6 gap-3 mb-6 text-sm">
-        <Field label="Property" value={row.propertyAddress} href={comm.propertyId ? `/properties/${comm.propertyId}` : undefined} />
-        <Field label="Case" value={row.caseTitle} href={row.caseId ? `/cases/${row.caseId}` : undefined} />
-        <Field label="Contact" value={row.senderName ? `${row.senderName}${row.senderEmail ? ` · ${row.senderEmail}` : ""}` : null} />
-        <Field label="Priority" value={row.casePriority} />
-        <Field label="Classification" value={row.caseType} />
+        <Field label={t["detail.fProperty"]} value={row.propertyAddress} href={comm.propertyId ? `/properties/${comm.propertyId}` : undefined} />
+        <Field label={t["detail.fCase"]} value={row.caseTitle} href={row.caseId ? `/cases/${row.caseId}` : undefined} />
+        <Field label={t["detail.fContact"]} value={row.senderName ? `${row.senderName}${row.senderEmail ? ` · ${row.senderEmail}` : ""}` : null} />
+        <Field label={t["detail.fPriority"]} value={row.casePriority} />
+        <Field label={t["detail.fClassification"]} value={row.caseType} />
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-neutral-400 mb-1">Status</div>
+          <div className="text-[11px] uppercase tracking-wide text-neutral-400 mb-1">{t["detail.fStatus"]}</div>
           {row.caseStatus ? <StatusBadge status={row.caseStatus} /> : <span className="text-neutral-400">—</span>}
         </div>
       </div>
 
       {/* Original | 中文 (Spec §20 / §25 — original is immutable) */}
-      <SectionTitle>Original ｜ 中文</SectionTitle>
+      <SectionTitle>{t["detail.originalZh"]}</SectionTitle>
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm whitespace-pre-wrap">{comm.originalContent}</div>
         <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm whitespace-pre-wrap">
-          {comm.translatedContentZh ?? <span className="text-neutral-400">（暂无中文翻译 — Phase 6 接入翻译工作流）</span>}
+          {comm.translatedContentZh ?? <span className="text-neutral-400">{t["detail.noTranslationYet"]}</span>}
         </div>
       </div>
 
       {/* AI section */}
-      <SectionTitle>AI Summary</SectionTitle>
+      <SectionTitle>{t["detail.aiSummary"]}</SectionTitle>
       <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm whitespace-pre-wrap">
-        {row.caseSummary ?? <span className="text-neutral-400">No AI summary yet — process this email from the Inbox list.</span>}
+        {row.caseSummary ?? <span className="text-neutral-400">{t["detail.noSummary"]}</span>}
       </div>
 
       {/* Reply draft + approval actions */}
       {pendingApproval && (
         <>
           <SectionTitle right={<ConfidenceBadge score={pendingApproval.confidence} />}>
-            AI Reply Draft — awaiting your approval
+            {t["detail.replyDraftHeading"]}
           </SectionTitle>
           <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <div className="text-[11px] uppercase tracking-wide text-neutral-400 mb-1">English (sending version)</div>
+                <div className="text-[11px] uppercase tracking-wide text-neutral-400 mb-1">{t["detail.engSendingVersion"]}</div>
                 <div className="whitespace-pre-wrap rounded border border-neutral-200 bg-white p-3">{pendingApproval.bodyEn}</div>
               </div>
               <div>
-                <div className="text-[11px] uppercase tracking-wide text-neutral-400 mb-1">中文草稿</div>
+                <div className="text-[11px] uppercase tracking-wide text-neutral-400 mb-1">{t["detail.zhDraft"]}</div>
                 <div className="whitespace-pre-wrap rounded border border-neutral-200 bg-white p-3">{pendingApproval.bodyZh}</div>
               </div>
             </div>
@@ -165,33 +172,33 @@ export default async function InboxDetailPage({
               <form action={approveAndSendAction}>
                 <input type="hidden" name="approvalId" value={pendingApproval.approvalId} />
                 <button className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-600">
-                  Approve &amp; Mock Send
+                  {t["detail.approveSend"]}
                 </button>
               </form>
               <form action={approveAction}>
                 <input type="hidden" name="approvalId" value={pendingApproval.approvalId} />
                 <button className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-100">
-                  Approve only
+                  {t["detail.approveOnly"]}
                 </button>
               </form>
               <form action={rejectAction} className="flex items-center gap-1.5">
                 <input type="hidden" name="approvalId" value={pendingApproval.approvalId} />
-                <input name="note" placeholder="Reason (optional)" className="rounded border border-neutral-300 px-2 py-1.5 text-xs w-44" />
+                <input name="note" placeholder={t["detail.reasonPh"]} className="rounded border border-neutral-300 px-2 py-1.5 text-xs w-44" />
                 <button className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">
-                  Reject
+                  {t["detail.reject"]}
                 </button>
               </form>
             </div>
 
             {/* Edit before approval (Spec §28) */}
             <details className="mt-3">
-              <summary className="cursor-pointer text-xs font-medium text-neutral-600">Edit before approving — keeps the AI draft + your final version</summary>
+              <summary className="cursor-pointer text-xs font-medium text-neutral-600">{t["detail.editBefore"]}</summary>
               <form action={editAndApproveAction} className="mt-2 space-y-2">
                 <input type="hidden" name="approvalId" value={pendingApproval.approvalId} />
                 <textarea name="bodyEn" rows={3} required defaultValue={pendingApproval.bodyEn} className="w-full rounded border border-neutral-300 p-2 text-sm" />
-                <textarea name="bodyZh" rows={2} placeholder="中文终稿（可选）" className="w-full rounded border border-neutral-300 p-2 text-sm" />
+                <textarea name="bodyZh" rows={2} placeholder={t["detail.zhFinalPh"]} className="w-full rounded border border-neutral-300 p-2 text-sm" />
                 <button className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700">
-                  Save edit, Approve &amp; Mock Send
+                  {t["detail.saveEditApproveSend"]}
                 </button>
               </form>
             </details>
@@ -199,22 +206,31 @@ export default async function InboxDetailPage({
         </>
       )}
 
+      {/* Chinese Compose → English Send Preview (Spec §25) — offered when no
+          AI draft awaits review on this case */}
+      {!pendingApproval && row.caseId && (
+        <>
+          <SectionTitle>{getDict(lang)["compose.heading"]}</SectionTitle>
+          <ComposeBox caseId={row.caseId} lang={lang} dict={getDict(lang)} />
+        </>
+      )}
+
       {/* Create task */}
-      <SectionTitle>Create Task</SectionTitle>
+      <SectionTitle>{t["detail.createTaskHeading"]}</SectionTitle>
       {row.caseId ? (
         <form action={createTaskAction} className="flex gap-2">
           <input type="hidden" name="caseId" value={row.caseId} />
-          <input name="title" required placeholder="Task title — e.g. Call plumber for quote" className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm" />
-          <button className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-100">Create Task</button>
+          <input name="title" required placeholder={t["detail.phTaskTitle"]} className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm" />
+          <button className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-100">{t["detail.btnCreateTask"]}</button>
         </form>
       ) : (
-        <div className="text-sm text-neutral-400">Link this message to a case first (run the workflow).</div>
+        <div className="text-sm text-neutral-400">{t["detail.noCaseHint"]}</div>
       )}
 
       {/* Recent timeline for context */}
       {timeline.length > 0 && (
         <>
-          <SectionTitle>Recent Timeline</SectionTitle>
+          <SectionTitle>{t["detail.timelineHeading"]}</SectionTitle>
           <div className="space-y-1">
             {timeline.map((a) => (
               <div key={a.id} className="flex items-baseline gap-2 rounded border border-neutral-100 bg-white px-3 py-2 text-xs">

@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { aiActions, approvals, cases, properties } from "@reos/db";
 import type { GeneratedReply } from "@reos/ai";
 import { getDb } from "../_lib/db";
+import { getI18n } from "../_lib/i18n";
 import {
   approveAction,
   approveAndSendAction,
@@ -27,6 +28,7 @@ export const dynamic = "force-dynamic";
  * "Approve All (high-confidence only)" shortcut.
  */
 export default async function ApprovalsPage() {
+  const { t } = await getI18n();
   const db = getDb();
 
   const rows = await db
@@ -47,21 +49,18 @@ export default async function ApprovalsPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <PageHeader
-        title="Approvals"
-        subtitle="Nothing executes without you — PROPOSED → APPROVED → EXECUTED (Spec §27)."
-      />
+      <PageHeader title={t["approvals.title"]} subtitle={t["approvals.subtitle"]} />
 
       {rows.length > 1 && (
         <form action={approveAllLowRiskAction} className="mb-4">
           <button className="rounded-md border border-emerald-700 bg-white px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-50">
-            Approve all high-confidence items (≥ 0.90) — others stay pending
+            {t["approvals.approveAll"]}
           </button>
         </form>
       )}
 
       {rows.length === 0 ? (
-        <EmptyHint>No pending approvals. Simulate an inbound email in the AI Inbox to generate one.</EmptyHint>
+        <EmptyHint>{t["approvals.empty"]}</EmptyHint>
       ) : (
         <div className="space-y-4">
           {rows.map(({ approval, action, caseTitle, caseId, propertyAddress }) => {
@@ -94,15 +93,15 @@ export default async function ApprovalsPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-5">
-                  <Field label="WHAT" value={String(payload.subject ?? action.actionType)} />
-                  <Field label="WHY" value={action.inputSummary ?? undefined} />
-                  <Field label="PROPERTY" value={propertyAddress ?? undefined} />
-                  <Field label="PERSON" value={String(payload.recipientName ?? "—")} />
-                  <Field label="RISK" value={`${band.label} · confidence ${action.confidence?.toFixed(2) ?? "n/a"}`} />
+                  <Field label={t["approvals.fWhat"]} value={String(payload.subject ?? action.actionType)} />
+                  <Field label={t["approvals.fWhy"]} value={action.inputSummary ?? undefined} />
+                  <Field label={t["approvals.fProperty"]} value={propertyAddress ?? undefined} />
+                  <Field label={t["approvals.fPerson"]} value={String(payload.recipientName ?? "—")} />
+                  <Field label={t["approvals.fRisk"]} value={`${band.label} · confidence ${action.confidence?.toFixed(2) ?? "n/a"}`} />
                 </div>
 
                 {/* Proposed content */}
-                <div className="mt-3 text-[11px] uppercase tracking-wide text-neutral-400 mb-1">Proposed content</div>
+                <div className="mt-3 text-[11px] uppercase tracking-wide text-neutral-400 mb-1">{t["approvals.proposedContent"]}</div>
                 {isReply ? (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="whitespace-pre-wrap rounded border border-neutral-200 bg-white p-3 text-sm">{payload.bodyEn}</div>
@@ -119,31 +118,31 @@ export default async function ApprovalsPage() {
                   <form action={approveAndSendAction}>
                     <input type="hidden" name="approvalId" value={approval.id} />
                     <button className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-600">
-                      Approve &amp; Execute (mock)
+                      {t["approvals.approveExecute"]}
                     </button>
                   </form>
                   <form action={approveAction}>
                     <input type="hidden" name="approvalId" value={approval.id} />
                     <button className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm hover:bg-neutral-100">
-                      Approve only
+                      {t["approvals.approveOnly"]}
                     </button>
                   </form>
                   <form action={rejectAction} className="flex items-center gap-1.5">
                     <input type="hidden" name="approvalId" value={approval.id} />
-                    <input name="note" placeholder="Reason (optional)" className="rounded border border-neutral-300 px-2 py-1.5 text-xs w-40" />
+                    <input name="note" placeholder={t["approvals.reasonPh"]} className="rounded border border-neutral-300 px-2 py-1.5 text-xs w-40" />
                     <button className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">
-                      Reject
+                      {t["approvals.reject"]}
                     </button>
                   </form>
                   {isReply && (
                     <details className="ml-auto w-full">
-                      <summary className="cursor-pointer text-xs font-medium text-neutral-600">Edit before approving</summary>
+                      <summary className="cursor-pointer text-xs font-medium text-neutral-600">{t["approvals.editBefore"]}</summary>
                       <form action={editAndApproveAction} className="mt-2 space-y-2">
                         <input type="hidden" name="approvalId" value={approval.id} />
                         <textarea name="bodyEn" rows={3} required defaultValue={payload.bodyEn} className="w-full rounded border border-neutral-300 p-2 text-sm" />
-                        <textarea name="bodyZh" rows={2} placeholder="中文终稿（可选）" className="w-full rounded border border-neutral-300 p-2 text-sm" />
+                        <textarea name="bodyZh" rows={2} placeholder={t["approvals.zhFinalPh"]} className="w-full rounded border border-neutral-300 p-2 text-sm" />
                         <button className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700">
-                          Save edit, Approve &amp; Execute
+                          {t["approvals.saveEditExecute"]}
                         </button>
                       </form>
                     </details>
