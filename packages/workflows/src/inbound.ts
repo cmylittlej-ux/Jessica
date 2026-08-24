@@ -63,6 +63,8 @@ export interface InformationOutcome {
   status: 'INFORMATION_ONLY';
   communicationId: string;
   reason: 'NO_ACTION_REQUIRED';
+  /** P0 Closure §4: set when a reliable existing case absorbed the message. */
+  attachedCaseId?: string | null;
   correlationId: string;
 }
 
@@ -369,6 +371,67 @@ export function createInboundWorkflow(
       });
       caseMatchConfidence = caseMatch.matchConfidence;
 
+      // -------------------------------------------------------------------
+      // P0 Closure §4 — INFORMATION_ONLY / NO_ACTION never creates a Case.
+      // Reliable existing case (LINK) ⇒ attach, nothing else. Otherwise the
+      // message is filed standalone: classification + translation + Activity
+      // + Audit — NO case, task, approval or reply is ever created.
+      // -------------------------------------------------------------------
+      if (informational) {
+        await translateInbound(db, gateway, communicationId, message.originalContent).catch(() => {});
+        const agencyId = await resolveAgency(db, propertyEvidence.propertyId);
+        let attachTo = caseMatch.decision === 'LINK' ? caseMatch.caseId : null;
+        // Deterministic thread identity: a FYI on an existing conversation
+        // reliably belongs to the case that conversation is already on.
+        if (!attachTo && message.externalConversationId) {
+          const [threadRow] = await db
+            .select({ caseId: communications.caseId })
+            .from(communications)
+            .where(
+              and(
+                eq(communications.externalConversationId, message.externalConversationId),
+                eq(communications.direction, 'INBOUND'),
+              ),
+            )
+            .limit(1);
+          if (threadRow?.caseId) attachTo = threadRow.caseId;
+        }
+        if (attachTo) {
+          await linkCommToCase(db, communicationId, attachTo);
+        }
+        await db.insert(activities).values({
+          id: `actv_${crypto.randomUUID()}`,
+          agencyId,
+          propertyId: propertyEvidence.propertyId,
+          caseId: attachTo ?? null,
+          actorType: 'AI',
+          activityType: 'INFORMATION_FILED',
+          title: `Information-only message filed${attachTo ? ' — attached to existing case' : ''}`,
+          metadata: {
+            communicationId,
+            correlationId,
+            actionRequired: classified.actionRequired,
+            attachedCaseId: attachTo,
+          },
+          occurredAt: new Date(),
+        });
+        await recordAudit(db, {
+          actorType: 'AI',
+          action: 'workflow.information_only_filed',
+          entityType: 'Communication',
+          entityId: communicationId,
+          afterData: { attachedCaseId: attachTo, actionRequired: classified.actionRequired },
+          correlationId,
+        });
+        return ok({
+          status: 'INFORMATION_ONLY',
+          communicationId,
+          reason: 'NO_ACTION_REQUIRED',
+          attachedCaseId: attachTo,
+          correlationId,
+        });
+      }
+
       if (caseMatch.decision === 'LINK' && caseMatch.caseId) {
         const [existing] = await db.select().from(cases).where(eq(cases.id, caseMatch.caseId)).limit(1);
         if (existing) {
@@ -504,7 +567,15 @@ export function createInboundWorkflow(
             });
           } else {
             const reply = replyResult.value;
-            const risk = classifyActionRisk('GENERATE_REPLY');
+            // P0 Closure §2: context-aware risk — offer/complaint/legal replies
+            // escalate above the GENERATE_REPLY base level.
+            const risk = classifyActionRisk({
+              actionType: 'GENERATE_REPLY',
+              businessDomain: classified.businessDomain,
+              caseType: classified.caseType,
+              actionRequired: classified.actionRequired,
+              priority: classified.priority,
+            });
             const actionId = `aia_${crypto.randomUUID()}`;
             await db.insert(aiActions).values({
               id: actionId,

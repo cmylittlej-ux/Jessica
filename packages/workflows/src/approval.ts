@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import {
   actionExecutions,
   aiActions,
@@ -34,6 +34,13 @@ export interface DecisionInput {
   reviewerId: string;
   decisionNote?: string;
 }
+
+/**
+ * P0 Closure §3: an EXECUTING lock older than this is considered abandoned
+ * (process crashed mid-send) and may be re-claimed for recovery. Fresh locks
+ * are absolute — a second caller never reaches the connector.
+ */
+const STALE_EXECUTING_TIMEOUT_MS = 60_000;
 
 function fail(code: WorkflowError['code'], message: string, details?: unknown) {
   return err(new WorkflowError(code, message, details));
@@ -187,12 +194,17 @@ export function createApprovalWorkflow(db: ReosDatabase) {
     },
 
     /**
-     * Execute an APPROVED action through the OUTBOX (§15):
-     *   1. claim/create the unique ActionExecution row (executionKey),
+     * Execute an APPROVED action through the OUTBOX (§15 + P0 Closure §3):
+     *   1. claim the unique ActionExecution row (executionKey),
      *   2. run the mock connector send,
      *   3. mark EXECUTED with the receipt as externalRef.
-     * A replay of the same key returns the existing outcome — never a second
-     * send.
+     *
+     * Concurrency: only ONE caller may hold the EXECUTING lock for a key.
+     * A second caller sees EXECUTING (fresh claim) and returns a SAFE NO-OP —
+     * it never reaches the connector.
+     * Crash recovery: an EXECUTING row older than the stale timeout is
+     * considered abandoned and may be re-claimed exactly once per attempt;
+     * until then every other caller fails closed rather than double-sending.
      */
     async executeApproved(input: {
       approvalId: string;
@@ -209,21 +221,35 @@ export function createApprovalWorkflow(db: ReosDatabase) {
       // ---- Step 1: claim the execution slot atomically ----------------------
       const executionKey = `exec:${approval.id}:${action.id}`;
       let claimedFresh = false;
+      let blockedByExecuting = false;
       try {
         await db.transaction(async (tx) => {
           const [existing] = await tx
             .select()
             .from(actionExecutions)
-            .where(and(eq(actionExecutions.executionKey, executionKey), eq(actionExecutions.status, 'EXECUTED')))
+            .where(eq(actionExecutions.executionKey, executionKey))
             .limit(1);
-          if (existing) return; // idempotent replay — nothing to do
 
-          const [pending] = await tx
-            .select()
-            .from(actionExecutions)
-            .where(and(eq(actionExecutions.executionKey, executionKey), eq(actionExecutions.status, 'EXECUTING')))
-            .limit(1);
-          if (pending) return; // resume a crashed attempt
+          if (existing?.status === 'EXECUTED') return; // idempotent replay
+
+          if (existing?.status === 'EXECUTING') {
+            const claimedAt = existing.claimedAt ?? existing.createdAt;
+            const staleMs = STALE_EXECUTING_TIMEOUT_MS;
+            if (Date.now() - claimedAt.getTime() < staleMs) {
+              // Fresh lock held by a live worker — NEVER send concurrently.
+              blockedByExecuting = true;
+              return;
+            }
+            // Stale lock from a crashed worker — re-claim and retry once.
+            await tx
+              .update(actionExecutions)
+              .set({ status: 'EXECUTING', claimedAt: new Date(), attempts: existing.attempts + 1 })
+              .where(eq(actionExecutions.executionKey, executionKey));
+            claimedFresh = true;
+            return;
+          }
+
+          if (existing?.status === 'FAILED') return; // failed stays failed — manual review
 
           await tx.insert(actionExecutions).values({
             id: `aex_${crypto.randomUUID()}`,
@@ -231,6 +257,7 @@ export function createApprovalWorkflow(db: ReosDatabase) {
             executionKey,
             status: 'EXECUTING',
             attempts: 1,
+            claimedAt: new Date(),
             correlationId: action.correlationId ?? null,
             createdAt: new Date(),
           });
@@ -239,6 +266,12 @@ export function createApprovalWorkflow(db: ReosDatabase) {
       } catch (cause) {
         return fail('DEPENDENCY_FAILURE', 'outbox claim failed',
           cause instanceof Error ? cause.message : String(cause));
+      }
+
+      // Concurrent caller: the effect is already being produced elsewhere.
+      // Fail closed with a safe no-op — never a second connector call.
+      if (blockedByExecuting) {
+        return ok({ actionId: action.id, communicationId: null, idempotentReplay: true });
       }
 
       // Idempotent replay path: find what already happened.

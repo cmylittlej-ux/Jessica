@@ -20,11 +20,13 @@ export type CaseWorkflowStatus =
 /**
  * Status a case enters right after an outbound reply is sent.
  * Awaiting customer response ⇒ WAITING (with a follow-up task).
+ *
+ * P0 Closure §1: every pre-send state lands in WAITING. IN_PROGRESS is never
+ * a post-send destination — a case must not hang there once we are waiting
+ * on an external party.
  */
 export function statusAfterReplySent(current: CaseWorkflowStatus): CaseWorkflowStatus {
-  if (current === 'READY_FOR_REVIEW' || current === 'NEW' || current === 'AI_PROCESSING') {
-    return 'IN_PROGRESS';
-  }
+  void current;
   return 'WAITING';
 }
 

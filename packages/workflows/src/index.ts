@@ -22,6 +22,7 @@ export {
   type InboundWorkflowDeps,
 } from './inbound.ts';
 export { createApprovalWorkflow, type DecisionInput } from './approval.ts';
+export { processDueFollowUps, completeFollowUpTask } from './followups.ts';
 export { ingestRawEmail, type RawEmailInput, type IngestResult } from './ingest.ts';
 export {
   matchContactByEmail,

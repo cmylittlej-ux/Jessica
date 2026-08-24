@@ -27,6 +27,7 @@ const TAB_KEYS = [
   "inbox.tabApproval",
   "inbox.tabReply",
   "inbox.tabFollowup",
+  "inbox.tabWaiting",
   "inbox.tabReview",
   "inbox.tabInformation",
 ] as const;
@@ -38,6 +39,7 @@ const TAB_PARAMS: Record<string, (typeof TAB_KEYS)[number]> = {
   Approval: "inbox.tabApproval",
   Reply: "inbox.tabReply",
   "Follow-up": "inbox.tabFollowup",
+  Waiting: "inbox.tabWaiting",
   Review: "inbox.tabReview",
   Information: "inbox.tabInformation",
 };
@@ -112,14 +114,17 @@ export default async function InboxPage({
       case "inbox.tabReply":
         return comm.actionRequired === "REPLY_REQUIRED" || replyCaseIds.has(comm.caseId);
       case "inbox.tabFollowup":
-        return comm.actionRequired === "FOLLOW_UP_REQUIRED" || caseStatus === "FOLLOW_UP_DUE" || caseStatus === "WAITING";
+        return comm.actionRequired === "FOLLOW_UP_REQUIRED" || caseStatus === "FOLLOW_UP_DUE";
+      // P0 Closure §6: Waiting is a first-class business state — never folded
+      // into Information.
+      case "inbox.tabWaiting":
+        return comm.actionRequired === "WAITING_FOR_OTHER" || caseStatus === "WAITING";
       case "inbox.tabReview":
         return comm.classificationConfidence !== null && comm.classificationConfidence < 0.7 || caseStatus === "READY_FOR_REVIEW";
       case "inbox.tabInformation":
         return (
           comm.actionRequired === "INFORMATION_ONLY" ||
-          comm.actionRequired === "NO_ACTION" ||
-          comm.actionRequired === "WAITING_FOR_OTHER"
+          comm.actionRequired === "NO_ACTION"
         );
       default:
         return true;

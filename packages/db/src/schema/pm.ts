@@ -296,6 +296,8 @@ export const actionExecutions = pgTable(
     connector: text('connector').notNull().default('mock-email'),
     correlationId: text('correlation_id'),
     lastError: text('last_error'),
+    /** P0 Closure §3: when the EXECUTING lock was taken — stale-lock recovery key. */
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

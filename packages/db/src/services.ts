@@ -40,9 +40,11 @@ export function nextApprovalStatus(
 export type WorkflowStatus = (typeof cases.$inferSelect)['status'];
 
 const CASE_TRANSITIONS: Record<WorkflowStatus, WorkflowStatus[]> = {
-  NEW: ['AI_PROCESSING', 'READY_FOR_REVIEW', 'IN_PROGRESS', 'COMPLETED', 'ARCHIVED'],
-  AI_PROCESSING: ['READY_FOR_REVIEW', 'IN_PROGRESS', 'COMPLETED'],
-  READY_FOR_REVIEW: ['IN_PROGRESS', 'COMPLETED', 'ARCHIVED'],
+  // P0 Closure §1: every pre-send state must be able to land in WAITING once
+  // the approved reply is sent — a case may never hang in a pre-send state.
+  NEW: ['AI_PROCESSING', 'READY_FOR_REVIEW', 'IN_PROGRESS', 'WAITING', 'COMPLETED', 'ARCHIVED'],
+  AI_PROCESSING: ['READY_FOR_REVIEW', 'IN_PROGRESS', 'WAITING', 'COMPLETED'],
+  READY_FOR_REVIEW: ['IN_PROGRESS', 'WAITING', 'COMPLETED', 'ARCHIVED'],
   IN_PROGRESS: ['WAITING', 'FOLLOW_UP_DUE', 'COMPLETED', 'ARCHIVED'],
   WAITING: ['IN_PROGRESS', 'FOLLOW_UP_DUE', 'COMPLETED', 'ARCHIVED'],
   FOLLOW_UP_DUE: ['IN_PROGRESS', 'COMPLETED', 'ARCHIVED'],

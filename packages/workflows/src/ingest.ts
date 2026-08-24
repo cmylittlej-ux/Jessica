@@ -46,6 +46,18 @@ export async function ingestRawEmail(
 
   const source = raw.source ?? 'SIMULATION';
   const sourceAccountId = raw.sourceAccountId ?? 'bayside-mailbox';
+
+  // P0 Closure §5 — real Outlook messages are STRICTLY identified. Two
+  // genuinely independent emails can be content-identical, so the fallback
+  // hash is only ever legal for simulation traffic.
+  if (source === 'OUTLOOK' && (!raw.externalMessageId || !raw.sourceAccountId)) {
+    return err(
+      new Error(
+        'OUTLOOK ingestion requires both sourceAccountId and externalMessageId — refusing to insert an ambiguously identified message',
+      ),
+    );
+  }
+
   const externalMessageId =
     raw.externalMessageId ?? `raw-${source}-${hashOf(`${from}|${raw.subject}|${raw.body}`)}`;
 
@@ -97,7 +109,13 @@ export async function ingestRawEmail(
       const [row] = await db
         .select({ rid: communications.id })
         .from(communications)
-        .where(eq(communications.externalMessageId, externalMessageId))
+        .where(
+          and(
+            eq(communications.source, source),
+            eq(communications.sourceAccountId, sourceAccountId),
+            eq(communications.externalMessageId, externalMessageId),
+          ),
+        )
         .limit(1);
       if (row) return ok({ communicationId: row.rid, duplicate: true });
     }

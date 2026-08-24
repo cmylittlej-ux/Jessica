@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   aiActions,
   approvals,
@@ -14,10 +14,9 @@ import {
 } from "@reos/db";
 import type { GeneratedReply } from "@reos/ai";
 import { createAIGateway, createBuildContext, createMockAIProvider } from "@reos/ai";
-import { createApprovalWorkflow, createInboundWorkflow, ingestRawEmail } from "@reos/workflows";
-import { bulkApproveDecision, statusOnCompletion } from "@reos/domain";
+import { createApprovalWorkflow, createInboundWorkflow, completeFollowUpTask, ingestRawEmail } from "@reos/workflows";
+import { bulkApproveDecision } from "@reos/domain";
 import type { Result } from "@reos/shared";
-import { nextCaseStatus, cases as casesTable } from "@reos/db";
 import { getDb } from "./_lib/db";
 import { LANG_COOKIE } from "./_lib/i18n";
 
@@ -152,6 +151,7 @@ export async function approveAllLowRiskAction(): Promise<void> {
   const pending = await db
     .select({
       approvalId: approvals.id,
+      caseId: aiActions.caseId,
       actionType: aiActions.actionType,
       riskLevel: aiActions.riskLevel,
       confidence: aiActions.confidence,
@@ -162,12 +162,37 @@ export async function approveAllLowRiskAction(): Promise<void> {
 
   const workflow = createApprovalWorkflow(db);
   const reviewer = await firstUserId();
+
+  // P0 Closure §2: restricted-context lookup — the case type and the case's
+  // persisted inbound actionRequired decide whether bulk approval is allowed.
+  const caseIds = [...new Set(pending.map((r) => r.caseId).filter((x): x is string => Boolean(x)))];
+  const contextByCase = new Map<string, { caseType?: string; actionRequired?: string }>();
+  if (caseIds.length > 0) {
+    const caseRows = await db
+      .select({ id: cases.id, caseType: cases.caseType })
+      .from(cases)
+      .where(inArray(cases.id, caseIds));
+    for (const c of caseRows) contextByCase.set(c.id, { caseType: c.caseType });
+    const comms = await db
+      .select({ caseId: communications.caseId, actionRequired: communications.actionRequired })
+      .from(communications)
+      .where(and(inArray(communications.caseId, caseIds), eq(communications.direction, "INBOUND")));
+    for (const c of comms) {
+      if (!c.actionRequired || !c.caseId) continue;
+      const ctx = contextByCase.get(c.caseId);
+      if (ctx && !ctx.actionRequired) ctx.actionRequired = c.actionRequired;
+    }
+  }
+
   for (const row of pending) {
+    const ctx = row.caseId ? contextByCase.get(row.caseId) : undefined;
     const verdict = bulkApproveDecision({
       actionType: row.actionType,
       riskLevel: row.riskLevel,
       confidence: row.confidence,
       threshold: 0.9,
+      caseType: ctx?.caseType,
+      actionRequired: ctx?.actionRequired,
     });
     if (!verdict.allowed) continue;
     const approved = await workflow.approve({ approvalId: row.approvalId, reviewerId: reviewer });
@@ -191,26 +216,9 @@ async function loadApprovalPayload(
 export async function completeTaskAction(formData: FormData): Promise<void> {
   const taskId = String(formData.get("taskId") ?? "");
   if (!taskId) return;
-  const db = getDb();
-  await db
-    .update(tasks)
-    .set({ status: "DONE", completedAt: new Date(), updatedAt: new Date() })
-    .where(eq(tasks.id, taskId));
-
-  // §13 status closure: completing a case's follow-up closes the loop.
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
-  if (task?.caseId) {
-    const [parent] = await db.select().from(casesTable).where(eq(casesTable.id, task.caseId)).limit(1);
-    if (parent && ["WAITING", "FOLLOW_UP_DUE"].includes(parent.status)) {
-      const target = statusOnCompletion(parent.status as "WAITING" | "FOLLOW_UP_DUE");
-      if (target) {
-        await db
-          .update(casesTable)
-          .set({ status: nextCaseStatus(parent.status as "WAITING" | "FOLLOW_UP_DUE", target), updatedAt: new Date() })
-          .where(eq(casesTable.id, parent.id));
-      }
-    }
-  }
+  // P0 Closure §1: closure decision lives in the workflow layer — the case
+  // completes only when this was its last open (blocking) task.
+  await completeFollowUpTask(getDb(), taskId);
   invalidate();
 }
 
